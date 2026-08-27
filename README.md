@@ -1,2 +1,25 @@
-# ai-learning-notes
-Notes on AI, deep learning, Transformers, LLMs, RAG, Agents, and the foundations behind them.
+# AI 大模型基础学习笔记
+
+这是一个面向技术读者的大模型学习笔记仓库，整理了从基础认知到 RAG、Agent、LangChain、MCP 等主题的一系列文章。
+
+## 内容结构
+
+- `00-文章路线与节点映射.md`：整套文章的路线图和知识点映射
+- `00-写作风格规范.md`：系列文章统一的写作风格与表达原则
+- `01-*.md` 到 `24-*.md`：按主题展开的正文文章
+
+## 文章主线
+
+1. 大模型是什么
+2. Prompt 与任务设计
+3. 生成机制、Token、Embedding、相似度
+4. 文本切分、向量数据库、检索优化
+5. RAG 入门与实战
+6. Function Calling、Tool Call、MCP、Agent
+7. LangChain、LCEL、结构化输出、Memory
+8. worktree 与 AI 工具脚本实践
+
+## 阅读建议
+
+如果你是第一次看这套笔记，建议从 `01-我先把大模型是什么这件事想明白.md` 开始，再顺着编号往后读。
+想先看整体脉络，可以直接打开 `00-文章路线与节点映射.md`。
