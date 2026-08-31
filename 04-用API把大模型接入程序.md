@@ -190,7 +190,7 @@ flowchart TD
 
 ## Messages / Input：把“对话”变成结构化上下文
 
-课程里常见的写法是 Chat Completions 风格：
+很多入门示例常见的写法是 Chat Completions 风格：
 
 ```python
 result = client.chat.completions.create(
@@ -535,7 +535,7 @@ def parse_feedback_result(text: str) -> dict:
 
 ## 自己实现一个轻量 SDK，主要是在理解什么
 
-课程里会出现“自己实现 Completions”的内容。这个练习的价值不只是写一个玩具版 SDK，而是帮助理解 SDK 里面大概分了几层：
+有些练习会要求“自己实现 Completions”。这个练习的价值不只是写一个玩具版 SDK，而是帮助理解 SDK 里面大概分了几层：
 
 ```mermaid
 flowchart TD

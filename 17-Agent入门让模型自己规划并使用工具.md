@@ -1,7 +1,6 @@
 # 大模型学习笔记 17：Agent 入门：让模型自己规划并使用工具
 
 > 待写。  
-> 准备参考的学习点：LangChain 1.langchain介绍、2.第一个Agent、9.create_agent深入。
 
 ## 这篇要解决的问题
 
