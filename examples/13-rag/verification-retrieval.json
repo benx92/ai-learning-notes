@@ -1,0 +1,324 @@
+{
+  "embedding": "real SentenceTransformer; normalized vectors",
+  "generation_called": false,
+  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "model_max_seq_length": 128,
+  "versions": {
+    "sentence-transformers": "5.1.2",
+    "transformers": "4.57.1",
+    "torch": "2.6.0+cpu",
+    "chromadb": "1.5.9",
+    "langchain-text-splitters": "1.1.3",
+    "pymupdf": "1.26.7"
+  },
+  "pdf_sha256": "ad63fa9436c010f7c00fdf702f67ae7dd1b636355ba7b149eada60ca4dd45ba4",
+  "parsed": [
+    {
+      "text": "虚构售后政策\n\n\n订单退货期限\n\n\n\n\n会员订单签收后 15 日内可以申请退货。\n\n\n普通订单签收后 7 日内可以申请退货。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 1 页 / 共 2 页",
+      "metadata": {
+        "source": "refund-policy.pdf",
+        "file_type": ".pdf",
+        "page": 1,
+        "location": "PDF 第 1 页"
+      }
+    },
+    {
+      "text": "虚构售后政策\n\n\n商品例外与退款到账\n\n\n\n\n定制商品不支持无理由退货。\n\n\n退款将在审核通过后 3 个工作日内到账。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 2 页 / 共 2 页",
+      "metadata": {
+        "source": "refund-policy.pdf",
+        "file_type": ".pdf",
+        "page": 2,
+        "location": "PDF 第 2 页"
+      }
+    }
+  ],
+  "ingest": {
+    "file": "refund-policy.pdf",
+    "units": 2,
+    "chunks": 2,
+    "total": 2
+  },
+  "cases": [
+    {
+      "question": "会员买的普通商品，签收10天后还能退吗？",
+      "hits": [
+        {
+          "text": "虚构售后政策\n\n\n订单退货期限\n\n\n\n\n会员订单签收后 15 日内可以申请退货。\n\n\n普通订单签收后 7 日内可以申请退货。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 1 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 0,
+          "location": "PDF 第 1 页",
+          "metadata": {
+            "chunk_index": 0,
+            "source": "refund-policy.pdf",
+            "unit_index": 0,
+            "page": 1,
+            "file_type": ".pdf",
+            "location": "PDF 第 1 页"
+          },
+          "score": 0.7065657377243042
+        },
+        {
+          "text": "虚构售后政策\n\n\n商品例外与退款到账\n\n\n\n\n定制商品不支持无理由退货。\n\n\n退款将在审核通过后 3 个工作日内到账。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 2 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 1,
+          "location": "PDF 第 2 页",
+          "metadata": {
+            "file_type": ".pdf",
+            "source": "refund-policy.pdf",
+            "location": "PDF 第 2 页",
+            "unit_index": 1,
+            "page": 2,
+            "chunk_index": 1
+          },
+          "score": 0.5701847672462463
+        }
+      ],
+      "context": "[资料1] 来源：refund-policy.pdf；位置：PDF 第 1 页；块序号：0\n虚构售后政策\n\n\n订单退货期限\n\n\n\n\n会员订单签收后 15 日内可以申请退货。\n\n\n普通订单签收后 7 日内可以申请退货。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 1 页 / 共 2 页\n\n[资料2] 来源：refund-policy.pdf；位置：PDF 第 2 页；块序号：1\n虚构售后政策\n\n\n商品例外与退款到账\n\n\n\n\n定制商品不支持无理由退货。\n\n\n退款将在审核通过后 3 个工作日内到账。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 2 页 / 共 2 页",
+      "evidence": [
+        {
+          "text": "虚构售后政策\n\n\n订单退货期限\n\n\n\n\n会员订单签收后 15 日内可以申请退货。\n\n\n普通订单签收后 7 日内可以申请退货。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 1 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 0,
+          "location": "PDF 第 1 页",
+          "metadata": {
+            "chunk_index": 0,
+            "source": "refund-policy.pdf",
+            "unit_index": 0,
+            "page": 1,
+            "file_type": ".pdf",
+            "location": "PDF 第 1 页"
+          },
+          "score": 0.7065657377243042,
+          "label": "资料1"
+        },
+        {
+          "text": "虚构售后政策\n\n\n商品例外与退款到账\n\n\n\n\n定制商品不支持无理由退货。\n\n\n退款将在审核通过后 3 个工作日内到账。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 2 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 1,
+          "location": "PDF 第 2 页",
+          "metadata": {
+            "file_type": ".pdf",
+            "source": "refund-policy.pdf",
+            "location": "PDF 第 2 页",
+            "unit_index": 1,
+            "page": 2,
+            "chunk_index": 1
+          },
+          "score": 0.5701847672462463,
+          "label": "资料2"
+        }
+      ]
+    },
+    {
+      "question": "普通订单签收10天后还能退吗？",
+      "hits": [
+        {
+          "text": "虚构售后政策\n\n\n订单退货期限\n\n\n\n\n会员订单签收后 15 日内可以申请退货。\n\n\n普通订单签收后 7 日内可以申请退货。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 1 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 0,
+          "location": "PDF 第 1 页",
+          "metadata": {
+            "chunk_index": 0,
+            "source": "refund-policy.pdf",
+            "location": "PDF 第 1 页",
+            "file_type": ".pdf",
+            "unit_index": 0,
+            "page": 1
+          },
+          "score": 0.7838654518127441
+        },
+        {
+          "text": "虚构售后政策\n\n\n商品例外与退款到账\n\n\n\n\n定制商品不支持无理由退货。\n\n\n退款将在审核通过后 3 个工作日内到账。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 2 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 1,
+          "location": "PDF 第 2 页",
+          "metadata": {
+            "file_type": ".pdf",
+            "chunk_index": 1,
+            "location": "PDF 第 2 页",
+            "unit_index": 1,
+            "page": 2,
+            "source": "refund-policy.pdf"
+          },
+          "score": 0.5422842502593994
+        }
+      ],
+      "context": "[资料1] 来源：refund-policy.pdf；位置：PDF 第 1 页；块序号：0\n虚构售后政策\n\n\n订单退货期限\n\n\n\n\n会员订单签收后 15 日内可以申请退货。\n\n\n普通订单签收后 7 日内可以申请退货。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 1 页 / 共 2 页\n\n[资料2] 来源：refund-policy.pdf；位置：PDF 第 2 页；块序号：1\n虚构售后政策\n\n\n商品例外与退款到账\n\n\n\n\n定制商品不支持无理由退货。\n\n\n退款将在审核通过后 3 个工作日内到账。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 2 页 / 共 2 页",
+      "evidence": [
+        {
+          "text": "虚构售后政策\n\n\n订单退货期限\n\n\n\n\n会员订单签收后 15 日内可以申请退货。\n\n\n普通订单签收后 7 日内可以申请退货。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 1 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 0,
+          "location": "PDF 第 1 页",
+          "metadata": {
+            "chunk_index": 0,
+            "source": "refund-policy.pdf",
+            "location": "PDF 第 1 页",
+            "file_type": ".pdf",
+            "unit_index": 0,
+            "page": 1
+          },
+          "score": 0.7838654518127441,
+          "label": "资料1"
+        },
+        {
+          "text": "虚构售后政策\n\n\n商品例外与退款到账\n\n\n\n\n定制商品不支持无理由退货。\n\n\n退款将在审核通过后 3 个工作日内到账。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 2 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 1,
+          "location": "PDF 第 2 页",
+          "metadata": {
+            "file_type": ".pdf",
+            "chunk_index": 1,
+            "location": "PDF 第 2 页",
+            "unit_index": 1,
+            "page": 2,
+            "source": "refund-policy.pdf"
+          },
+          "score": 0.5422842502593994,
+          "label": "资料2"
+        }
+      ]
+    },
+    {
+      "question": "定制商品签收3天后能无理由退货吗？",
+      "hits": [
+        {
+          "text": "虚构售后政策\n\n\n商品例外与退款到账\n\n\n\n\n定制商品不支持无理由退货。\n\n\n退款将在审核通过后 3 个工作日内到账。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 2 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 1,
+          "location": "PDF 第 2 页",
+          "metadata": {
+            "file_type": ".pdf",
+            "page": 2,
+            "chunk_index": 1,
+            "source": "refund-policy.pdf",
+            "unit_index": 1,
+            "location": "PDF 第 2 页"
+          },
+          "score": 0.7807043790817261
+        },
+        {
+          "text": "虚构售后政策\n\n\n订单退货期限\n\n\n\n\n会员订单签收后 15 日内可以申请退货。\n\n\n普通订单签收后 7 日内可以申请退货。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 1 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 0,
+          "location": "PDF 第 1 页",
+          "metadata": {
+            "chunk_index": 0,
+            "file_type": ".pdf",
+            "source": "refund-policy.pdf",
+            "unit_index": 0,
+            "location": "PDF 第 1 页",
+            "page": 1
+          },
+          "score": 0.711193859577179
+        }
+      ],
+      "context": "[资料1] 来源：refund-policy.pdf；位置：PDF 第 2 页；块序号：1\n虚构售后政策\n\n\n商品例外与退款到账\n\n\n\n\n定制商品不支持无理由退货。\n\n\n退款将在审核通过后 3 个工作日内到账。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 2 页 / 共 2 页\n\n[资料2] 来源：refund-policy.pdf；位置：PDF 第 1 页；块序号：0\n虚构售后政策\n\n\n订单退货期限\n\n\n\n\n会员订单签收后 15 日内可以申请退货。\n\n\n普通订单签收后 7 日内可以申请退货。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 1 页 / 共 2 页",
+      "evidence": [
+        {
+          "text": "虚构售后政策\n\n\n商品例外与退款到账\n\n\n\n\n定制商品不支持无理由退货。\n\n\n退款将在审核通过后 3 个工作日内到账。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 2 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 1,
+          "location": "PDF 第 2 页",
+          "metadata": {
+            "file_type": ".pdf",
+            "page": 2,
+            "chunk_index": 1,
+            "source": "refund-policy.pdf",
+            "unit_index": 1,
+            "location": "PDF 第 2 页"
+          },
+          "score": 0.7807043790817261,
+          "label": "资料1"
+        },
+        {
+          "text": "虚构售后政策\n\n\n订单退货期限\n\n\n\n\n会员订单签收后 15 日内可以申请退货。\n\n\n普通订单签收后 7 日内可以申请退货。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 1 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 0,
+          "location": "PDF 第 1 页",
+          "metadata": {
+            "chunk_index": 0,
+            "file_type": ".pdf",
+            "source": "refund-policy.pdf",
+            "unit_index": 0,
+            "location": "PDF 第 1 页",
+            "page": 1
+          },
+          "score": 0.711193859577179,
+          "label": "资料2"
+        }
+      ]
+    },
+    {
+      "question": "退货运费由谁承担？",
+      "hits": [
+        {
+          "text": "虚构售后政策\n\n\n商品例外与退款到账\n\n\n\n\n定制商品不支持无理由退货。\n\n\n退款将在审核通过后 3 个工作日内到账。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 2 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 1,
+          "location": "PDF 第 2 页",
+          "metadata": {
+            "source": "refund-policy.pdf",
+            "page": 2,
+            "chunk_index": 1,
+            "location": "PDF 第 2 页",
+            "unit_index": 1,
+            "file_type": ".pdf"
+          },
+          "score": 0.4377065896987915
+        },
+        {
+          "text": "虚构售后政策\n\n\n订单退货期限\n\n\n\n\n会员订单签收后 15 日内可以申请退货。\n\n\n普通订单签收后 7 日内可以申请退货。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 1 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 0,
+          "location": "PDF 第 1 页",
+          "metadata": {
+            "unit_index": 0,
+            "chunk_index": 0,
+            "location": "PDF 第 1 页",
+            "source": "refund-policy.pdf",
+            "file_type": ".pdf",
+            "page": 1
+          },
+          "score": 0.33252906799316406
+        }
+      ],
+      "context": "[资料1] 来源：refund-policy.pdf；位置：PDF 第 2 页；块序号：1\n虚构售后政策\n\n\n商品例外与退款到账\n\n\n\n\n定制商品不支持无理由退货。\n\n\n退款将在审核通过后 3 个工作日内到账。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 2 页 / 共 2 页\n\n[资料2] 来源：refund-policy.pdf；位置：PDF 第 1 页；块序号：0\n虚构售后政策\n\n\n订单退货期限\n\n\n\n\n会员订单签收后 15 日内可以申请退货。\n\n\n普通订单签收后 7 日内可以申请退货。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 1 页 / 共 2 页",
+      "evidence": [
+        {
+          "text": "虚构售后政策\n\n\n商品例外与退款到账\n\n\n\n\n定制商品不支持无理由退货。\n\n\n退款将在审核通过后 3 个工作日内到账。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 2 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 1,
+          "location": "PDF 第 2 页",
+          "metadata": {
+            "source": "refund-policy.pdf",
+            "page": 2,
+            "chunk_index": 1,
+            "location": "PDF 第 2 页",
+            "unit_index": 1,
+            "file_type": ".pdf"
+          },
+          "score": 0.4377065896987915,
+          "label": "资料1"
+        },
+        {
+          "text": "虚构售后政策\n\n\n订单退货期限\n\n\n\n\n会员订单签收后 15 日内可以申请退货。\n\n\n普通订单签收后 7 日内可以申请退货。\n\n\n\n\n\n仅用于文档问答测试，不代表实际公司政策或法律规定。\n\n第 1 页 / 共 2 页",
+          "source": "refund-policy.pdf",
+          "chunk_index": 0,
+          "location": "PDF 第 1 页",
+          "metadata": {
+            "unit_index": 0,
+            "chunk_index": 0,
+            "location": "PDF 第 1 页",
+            "source": "refund-policy.pdf",
+            "file_type": ".pdf",
+            "page": 1
+          },
+          "score": 0.33252906799316406,
+          "label": "资料2"
+        }
+      ]
+    }
+  ],
+  "limitations": "两块小语料，默认 top_k=5 会返回全部块；不是检索质量基准，也没有验证生成答案。"
+}

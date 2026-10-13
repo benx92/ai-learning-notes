@@ -4,19 +4,20 @@
 
 但真正动手时，还会遇到一个很现实的问题：文档加载、文本切分、向量检索和模型调用各自都能运行，放到一起却不一定能顺利工作。
 
-比如，文档已经切好了，检索函数却查了另一个集合；检索结果已经返回了，模型输入里却没有这些正文；模型给出了答案，终端又只显示一句话，看不到依据。
+比如，PDF 能打开却没有提取到规则；文档已经切好了，检索函数却查了另一个集合；检索结果已经返回了，模型输入里却没有这些正文；模型给出了答案，终端又只显示一句话，看不到依据。
 
 刚开始接触这类项目时，很容易把“几个接口都调通了”理解成“系统已经做好了”。继续往下看才会发现，组件之间传递什么数据、遇到空结果怎么办、最后返回哪些信息，同样需要明确设计。
 
 所以这篇沿用前面的售后政策，把讨论推进到一个更具体的问题：
 
-> 从一个 Markdown 文件开始，怎样完成入库、检索、组装上下文和生成回答，并让每一步的结果都能检查？
+> 从 Markdown、PDF 或办公文档开始，怎样完成解析、入库、检索和生成回答，并让答案能够回查到原始位置？
 
 这篇想解决的，就是从“知道每个组件做什么”，继续走到“能够把它们接成一次完整问答”。切分、Embedding 和检索的已有认识，会在下面逐步落到具体函数里。
 
 | 本篇要补上的环节 | 读完后应该能回答的问题 |
 | --- | --- |
 | 程序入口 | 入库、只检索和问答分别调用什么函数 |
+| 文档解析 | 不同文件怎样变成带页码、幻灯片序号或表格位置的文本 |
 | 入库编排 | 文件怎样变成库里的正文、向量和来源记录 |
 | 检索接口 | 数据库结果怎样变成后续函数能直接使用的候选 |
 | 上下文组装 | 哪些候选真正进入模型输入，编号怎样保持一致 |
@@ -25,7 +26,7 @@
 
 ## 从一份售后政策开始
 
-前面使用的规则很简单：会员订单签收后 15 日内可以申请退货，普通订单是 7 日，定制商品不支持无理由退货。这次把它们保存成 `refund-policy.md`，再补一条退款到账说明，用来观察“主题相关但回答不了当前问题”的检索结果。
+前面使用的规则很简单：会员订单签收后 15 日内可以申请退货，普通订单是 7 日，定制商品不支持无理由退货。这次把它们保存成 `refund-policy.md`，并准备一份同内容的两页 PDF，再补一条退款到账说明，用来观察“主题相关但回答不了当前问题”的检索结果。
 
 ```markdown
 # 示例售后政策
@@ -49,6 +50,8 @@
 退款将在审核通过后 3 个工作日内到账。
 ```
 
+PDF 的第 1 页放会员与普通订单的期限，第 2 页放定制商品例外和退款到账说明。这样，回答同一个问题时就需要同时检查两页，而不是只找到一条相似句子。可以下载[售后政策 PDF](https://raw.githubusercontent.com/benx92/ai-learning-notes/main/examples/13-rag/refund-policy.pdf)对照后面的解析结果。PDF 是人为编写的虚构政策，但文件解析会使用真实解析库执行。
+
 用户继续问：
 
 ```text
@@ -71,15 +74,16 @@
 
 ## 一个最小问答系统需要哪些部分
 
-为了把各部分的关系看清楚，下面使用一个命令行小程序。完整源码是 [rag.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/rag.py)，它提供三个入口：
+为了把各部分的关系看清楚，下面使用一个命令行小程序。完整源码是 [rag.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/rag.py)，它提供四个入口：
 
 ```text
-rag.py ingest   -> 读取文件、切分、编码、写入知识库
+rag.py extract  -> 只解析，显示正文与原始位置
+rag.py ingest   -> 解析、切分、编码、写入知识库
 rag.py retrieve -> 只检索，返回命中的正文和来源
 rag.py query    -> 检索、选择上下文、调用模型、返回答案和证据
 ```
 
-下面会顺着这三个入口，逐步解释文件怎样入库、问题怎样检索，以及资料怎样进入模型。完整源码可以配合正文阅读，安装和运行步骤也保存在 [README](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/README.md) 中，方便动手时查阅。
+下面会顺着这四个入口，逐步解释文件怎样入库、问题怎样检索，以及资料怎样进入模型。完整源码可以配合正文阅读，安装和运行步骤也保存在 [README](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/README.md) 中，方便动手时查阅。
 
 文件之间的关系是：
 
@@ -87,6 +91,9 @@ rag.py query    -> 检索、选择上下文、调用模型、返回答案和证�
 | --- | --- |
 | [rag.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/rag.py) | 完整程序，包含下面要解释的函数和命令行入口 |
 | [refund-policy.md](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/refund-policy.md) | 本篇使用的虚构售后政策 |
+| [loader.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/loader.py) | 按格式解析文件，返回带来源位置的文本单元 |
+| [refund-policy.pdf](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/refund-policy.pdf) | 两页售后政策，贯穿本篇的 PDF 实战 |
+| [test_loader.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/test_loader.py) | 检查真实格式解析及来源位置的传递 |
 | [requirements.txt](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/requirements.txt) | 程序需要安装的第三方依赖 |
 | [README.md](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/README.md) | 可选的运行附录，方便下载代码后查命令 |
 | [test_rag.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/test_rag.py) | 检查入库更新、上下文选择和生成调用条件的流程测试 |
@@ -110,13 +117,17 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
 
 `Pipeline` 是这里自己写的普通 Python 类，负责持有嵌入模型、切分器和向量集合，不是某个框架自动执行的对象。`ask()` 也是普通函数，后面会把它完整展开。
 
+`extract` 分支在创建 `Pipeline` 之前就会返回解析结果，所以只检查文件时不必等模型下载。入库与检索才继续创建编码器和向量集合；生成凭证则直到 `query` 真正发起生成时才读取。
+
 把这几个入口画出来，就能看到各部分的实际连接位置：
 
 ```mermaid
 flowchart TD
     A[命令行入口 main] --> B{子命令}
+    B -- extract --> N[DocumentLoader.load]
+    N --> O[正文与原始位置]
     B -- ingest --> C[Pipeline.ingest]
-    C --> D[读取、切分、编码、写入]
+    C --> D[解析、按原始单元切分、编码、写入]
     D --> E[(Chroma 集合)]
     B -- retrieve --> F[Pipeline.retrieve]
     B -- query --> G[ask]
@@ -143,7 +154,8 @@ flowchart TD
 正文里的代码按讲解顺序摘录；`ingest()` 和 `retrieve()` 属于同一个 `Pipeline` 类，不能把所有代码块直接按顺序拼接成脚本。需要运行时使用完整的 `rag.py`，需要理解时对照下面的函数阅读。源码中的排列关系是：
 
 ```text
-导入与系统提示 → Embedder → Pipeline（初始化、入库、检索）
+loader.py：DocumentUnit → DocumentLoader
+rag.py：导入与系统提示 → Embedder → Pipeline（初始化、入库、检索）
              → pack_context → generate → ask → main
 ```
 
@@ -151,9 +163,120 @@ flowchart TD
 
 先看入库。它要把磁盘上的文件，转换成带正文、向量和来源的记录。前面讨论的文本切分和向量存储，在这里成为同一次文件处理中的两个步骤。
 
-程序启动时会准备三个对象：
+**先让不同格式返回同一种数据。**
+
+`read_text()` 适用于已经是文本的文件。PDF、Word 和 PPT 的内部结构不同，需要各自的解析器；如果把格式判断全部写进问答方法，后面每增加一种文件，就得改动主流程。
+
+因此，这里先加入一个独立的 `DocumentLoader`。它返回的不是整篇拼接后的字符串，而是多个“带原始位置的文本单元”。例如，一页 PDF、一个 PPT 幻灯片、一行 Excel 数据，都可以成为一个单元：
+
+```python
+from dataclasses import dataclass
+
+
+@dataclass
+class DocumentUnit:
+    text: str
+    metadata: dict
+```
+
+`text` 是待切分的正文，`metadata` 是回查位置需要的信息。加载器统一添加 `source` 和 `file_type`；各解析器再提供自己的定位字段。
+
+| 文件 | 当前提取方式 | 保留的位置 | 本例的边界 |
+| --- | --- | --- | --- |
+| Markdown、TXT | 严格按 UTF-8 读取 | 文件来源，位置为全文 | 不提供原始行号定位 |
+| PDF | 逐页提取文本，再分别切分 | `page`，从 1 开始 | 不自动 OCR；有空文本页会报错，需检查空白页或扫描页 |
+| DOCX | 按正文块顺序读取段落与表格行 | `block`、表格 `row` | 不提供排版页码，不读取图片、页眉页脚和修订内容 |
+| PPTX | 提取文本框、表格及组合形状中的文本 | `slide`，从 1 开始 | 不解析图片、图表语义或演讲者备注；无文本页跳过 |
+| XLSX | 每张表逐行读取，给值补上表头 | `sheet`、`row` | 假定首个非空行是表头；读取公式缓存值，不重新计算公式 |
+| HTML | 移除脚本和样式后提取文本 | 文件来源、HTML 正文 | 只处理本地 HTML，不抓取网页，也没有自动识别主内容区域 |
+| CSV、JSON、JSONL | 按记录或 JSON 结构读取 | 记录序号、行号或全文 | 不自动识别业务字段含义 |
+
+旧版 `.doc`、`.ppt` 和 `.xls` 不直接交给新版格式解析器，先转换格式再处理。扩展名写进支持列表，不代表底层库就能正确读取它。
+
+加载入口位于 `loader.py`，下面是实际实现。`csv`、`json`、`Path` 和 `DocumentUnit` 在同一文件前面定义；各 `_xxx()` 方法在类里负责具体格式：
+
+```python
+def load(self, file_path):
+    path = Path(file_path).resolve()
+    if not path.is_file():
+        raise ValueError("请指定一个存在的文件，不支持目录入库")
+    readers = {".md": self._plain, ".txt": self._plain,
+               ".pdf": self._pdf, ".docx": self._docx,
+               ".pptx": self._pptx, ".xlsx": self._xlsx,
+               ".html": self._html, ".htm": self._html,
+               ".csv": self._csv, ".json": self._json,
+               ".jsonl": self._jsonl}
+    reader = readers.get(path.suffix.lower())
+    if reader is None:
+        raise ValueError("不支持此格式；旧版 .doc/.ppt/.xls 请先转换为新版格式")
+    units = []
+    for text, metadata in reader(path):
+        text = "\n".join(line.rstrip() for line in text.splitlines()).strip()
+        if text:
+            units.append(DocumentUnit(text, {"source": str(path),
+                "file_type": path.suffix.lower(), **metadata}))
+    if not units:
+        raise ValueError("文件没有可用正文，保留原有索引")
+    return units
+```
+
+这里只清理行尾空白并去掉首尾空行，不随意压平段落或丢掉表格字段。解析完成后才把结果交给入库流程；格式错误、编码错误和空正文都会在写库前终止。
+
+**用 PDF 看清“正文与页码一起返回”。**
+
+下面是类里的 PDF 解析方法，使用 PyMuPDF。`page.get_text("text", sort=True)` 提取文字并尝试按位置排序；`number` 是从 1 开始的物理页序号，不一定等同于文档印刷的页码。
+
+```python
+def _pdf(path):
+    import pymupdf
+
+    with pymupdf.open(path) as document:
+        if document.needs_pass:
+            raise ValueError("PDF 已加密，请先解密后再解析")
+        for number, page in enumerate(document, 1):
+            text = page.get_text("text", sort=True).strip()
+            if not text:
+                raise ValueError(f"PDF 第 {number} 页未提取到文字；请检查空白页或先做 OCR")
+            yield text, {"page": number, "location": f"PDF 第 {number} 页"}
+```
+
+如果先把所有页拼成大字符串，再统一切分，一个块就可能同时包含第 1 页和第 2 页的内容，之后很难给它标一个准确页码。这里先保留页级单元，再在页内切分，每个块继承该页的元数据。
+
+这个选择也有代价：跨页的句子和表格暂时不能自动合并。`sort=True` 只是阅读顺序的基础处理，多栏排版、表格和图片里的文字仍可能需要额外解析。第14篇会继续展开这些问题。[PyMuPDF 文本提取说明](https://pymupdf.readthedocs.io/en/latest/recipes-text.html)
+
+**PPT 和表格怎样接到同一个入口？**
+
+PPT 的基本边界是幻灯片。下面的实现会收集文本框与表格内容，也递归进入组合形状；最终每张有文本的幻灯片返回一个单元：
+
+```python
+def _pptx(path):
+    from pptx import Presentation
+
+    def shape_texts(shapes):
+        for shape in shapes:
+            if shape.has_text_frame:
+                yield shape.text
+            if shape.has_table:
+                for row in shape.table.rows:
+                    yield " | ".join(cell.text for cell in row.cells)
+            if hasattr(shape, "shapes"):
+                yield from shape_texts(shape.shapes)
+
+    for number, slide in enumerate(Presentation(path).slides, 1):
+        yield "\n".join(shape_texts(slide.shapes)), {
+            "slide": number, "location": f"PPT 第 {number} 张幻灯片"}
+```
+
+它保留的是幻灯片序号，形状的遍历顺序不保证等于人的视觉阅读顺序。图片里写着关键条款、图表用颜色表达条件时，单纯提取文本仍可能漏掉信息。
+
+Word 则按正文块的顺序遍历段落和表格，避免把所有表格统一挪到文章末尾。Excel 示例假定每张表的首个非空行是表头，把下一行写成“类别=会员；期限=15”，并保留工作表与行号。这样切分后仍能知道 15 是哪个字段的值；复杂多级表头和合并单元格暂时需要另行处理。[Word 正文块接口](https://python-docx.readthedocs.io/en/latest/api/document.html)、[PPT 文本与表格示例](https://python-pptx.readthedocs.io/en/latest/user/quickstart.html)、[Excel 读取说明](https://openpyxl.readthedocs.io/en/stable/tutorial.html)
+
+这些实现都在配套的 `loader.py` 中。共同的关键不是各自返回一大段文字，而是让正文与位置一起返回；后面的向量库和生成函数就可以继续使用统一接口。
+
+进入入库与检索阶段时，会准备四个对象：
 
 ```text
+self.loader     -> 返回正文与原始位置的加载器
 self.embedder   -> 文档和问题共用的嵌入模型
 self.splitter   -> 把正文拆成文本块的切分器
 self.collection -> 保存正文、向量和来源的 Chroma 集合
@@ -190,7 +313,7 @@ class Embedder:
 
 `token_count()` 不计特殊 Token，适合供切分器估算正文长度；`encode()` 则在真正编码前把特殊 Token 算进去，超长时明确报错。这个检查也适用于用户问题，避免问题被悄悄截短后再拿去检索。
 
-**再在初始化中把三个对象接起来。**
+**再在初始化中把四个对象接起来。**
 
 下面列出 `Pipeline.__init__()`，用到的标准库导入也一并保留。后面的入库与检索方法都放在这个类里面：
 
@@ -198,6 +321,7 @@ class Embedder:
 import hashlib
 import os
 from pathlib import Path
+from loader import DocumentLoader
 
 
 class Pipeline:
@@ -210,6 +334,7 @@ class Pipeline:
             "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         )
         self.embedder = embedder or Embedder(model_name)
+        self.loader = DocumentLoader()
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=80,
             chunk_overlap=12,
@@ -219,7 +344,7 @@ class Pipeline:
         )
         # 编码器或切分配置变化时使用新集合，防止混用不同语义空间。
         signature = hashlib.sha256(
-            f"{model_name}|tokens80-overlap12|cosine|v1".encode()
+            f"{model_name}|tokens80-overlap12|cosine|units-v2".encode()
         ).hexdigest()[:16]
         self.collection = chromadb.PersistentClient(path=str(db_path)).get_or_create_collection(
             name=f"rag_{signature}",
@@ -234,17 +359,20 @@ class Pipeline:
 
 另一个需要具体落实的选择是块长。这个 MiniLM 模型卡展示的默认最大序列长度为 128，因此示例按嵌入模型自己的 Tokenizer 计数，目标块长 80、目标重叠 12，并在编码前检查包含特殊 Token 的实际长度。这里不把“500 个字符”当作“500 个 Token”。长度与边界的取舍沿用前面的切分思路，80 和 12 只是当前示例的起点。[模型卡](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2)
 
-`Pipeline.ingest()` 的主体如下。它是类中的方法，使用初始化时准备好的三个对象：
+`Pipeline.ingest()` 的主体如下。它是类中的方法，使用初始化时准备好的加载器、切分器、编码器和集合：
 
 ```python
 def ingest(self, file_path):
     path = Path(file_path).resolve()
-    if not path.is_file() or path.suffix.lower() not in {".md", ".txt"}:
-        raise ValueError("请指定一个存在的 .md 或 .txt 文件")
-    text = path.read_text(encoding="utf-8-sig").strip()
-    if not text:
-        raise ValueError("文件没有可用正文，保留原有索引")
-    texts = [part.strip() for part in self.splitter.split_text(text) if part.strip()]
+    units = self.loader.load(path)
+    texts, metadatas = [], []
+    # 每个原始位置单独切分；一块不会跨越 PDF 页或 PPT 幻灯片。
+    for unit_index, unit in enumerate(units):
+        for part in self.splitter.split_text(unit.text):
+            if part.strip():
+                metadatas.append({**unit.metadata, "unit_index": unit_index,
+                                  "chunk_index": len(texts)})
+                texts.append(part.strip())
     if not texts:
         raise ValueError("没有生成有效文本块")
     source = str(path)
@@ -261,20 +389,20 @@ def ingest(self, file_path):
         self.collection.upsert(
             ids=ids[start:end], documents=texts[start:end],
             embeddings=vectors[start:end],
-            metadatas=[{"source": source, "chunk_index": i}
-                       for i in range(start, min(end, len(texts)))],
+            metadatas=metadatas[start:end],
         )
     stale_ids = sorted(set(old_ids) - set(ids))
     for start in range(0, len(stale_ids), 64):
         self.collection.delete(ids=stale_ids[start:start + 64])
-    return {"file": source, "chunks": len(texts), "total": self.collection.count()}
+    return {"file": source, "units": len(units), "chunks": len(texts),
+            "total": self.collection.count()}
 ```
 
 这段代码可以按四组动作读。
 
-**先读取，再切分。**只接受 UTF-8 Markdown 和 TXT，`utf-8-sig` 同时兼容带 BOM 的文本。空文件直接报错，已有索引不会因为读到空正文就被清掉。程序保留段落和换行，具体解析格式留给下一步讨论。
+**先解析，再按原始单元切分。**加载器返回 PDF 页、PPT 幻灯片或表格行等单元。每个单元分别调用切分器；块继承 `page`、`slide`、`sheet`、`row` 等字段，并增加 `unit_index` 与全文件 `chunk_index`。解析或编码失败时尚未写库，已有索引不会因空正文被清掉。
 
-**给文本块生成稳定身份。**来源使用完整文件路径，避免不同目录的同名文件混在一起；ID 根据来源、序号和正文计算，相同输入可以得到相同 ID。块序号只表示切分结果中的位置，不冒充页码。
+**给文本块生成稳定身份。**来源使用完整文件路径，避免不同目录的同名文件混在一起；ID 根据来源、序号和正文计算，相同输入可以得到相同 ID。块序号表示切分结果的位置；页码、幻灯片序号和表格行号保存在独立字段里，不能互相替代。
 
 **编码后按批写入。**`ids`、`documents`、`embeddings` 和 `metadatas` 的对应关系，与前面向量数据库文章里的记录结构相同。这里新增的是把它们从实际文件自动组装出来，而不是手工填写几个演示列表。
 
@@ -314,11 +442,12 @@ def retrieve(self, question, top_k=5, threshold=-1.0):
         if score >= threshold:
             hits.append({"chunk_id": chunk_id, "text": text,
                          "source": meta["source"], "chunk_index": meta["chunk_index"],
+                         "location": meta["location"], "metadata": meta,
                          "score": score})
     return hits
 ```
 
-每条候选有五类信息：
+每条候选除了正文、来源、ID 和分数，还携带原文位置：
 
 | 字段 | 后续用途 |
 | --- | --- |
@@ -326,6 +455,7 @@ def retrieve(self, question, top_k=5, threshold=-1.0):
 | `text` | 提供给模型阅读的正文 |
 | `source` | 展示来源、回查原文件 |
 | `chunk_index` | 定位到文件的切分结果 |
+| `location`、`metadata` | 展示并保留页码、幻灯片、工作表与行号等原文位置 |
 | `score` | 调试排序和过滤 |
 
 前面的向量数据库示例已经解释过分组返回，因此这里的 `[0]` 仍然表示当前唯一问题的那一组结果。换成别的检索工具时，只要最终返回同样的候选结构，后面的 `pack_context()` 就不必跟着改。
@@ -348,6 +478,7 @@ def pack_context(hits, budget=6000):
     for hit in hits:
         number = len(evidence) + 1
         block = (f"[资料{number}] 来源：{Path(hit['source']).name}；"
+                 f"位置：{hit.get('location', '全文')}；"
                  f"块序号：{hit['chunk_index']}\n{hit['text']}")
         cost = len(block) + (2 if parts else 0)
         if used + cost > budget:
@@ -463,59 +594,86 @@ def ask(pipeline, question, top_k=5, threshold=-1.0, budget=6000, generator=gene
 
 返回值中的 `generated_pending_verification` 沿用上一篇的语义：生成完成，仍待核验。证据清单和模型输出分开放，是为了能把答案中的编号与原文对起来；程序没有因此自动完成逐句真实性认证。
 
-## 用同一个问题看数据怎样变化
+## 用一份 PDF 走完文件到答案的过程
 
-现在回到“会员买的普通商品，签收 10 天后还能退吗”。把各个函数的输入输出放在一起，才能判断它们是否真的接上了。
+现在回到两页售后政策和同一个问题：“会员买的普通商品，签收 10 天后还能退吗？”PDF 已包含在压缩包中；重建脚本是 `build_sample.py`，只有重建 PDF 时才需要另外安装 ReportLab，日常解析不需要。
 
-| 经过的位置 | 数据变成什么 | 这一步要检查什么 |
-| --- | --- | --- |
-| 读取文件 | 售后政策的完整字符串 | 会员规则、普通订单规则和例外是否都读到了 |
-| 切分与编码 | 文本块列表，以及一一对应的向量 | 条件和正文是否完整，长度是否超过上限 |
-| 写入集合 | ID、正文、向量、来源、块序号 | 同一来源的旧条款是否清理 |
-| 检索问题 | 按相似程度排列的 `hits` | 是否包含会员期限和商品例外 |
-| 选择上下文 | 带编号的 `context` 和 `evidence` | 关键条款是否真的装入，编号是否一致 |
-| 生成回答 | 答案、模型信息和实际输入证据 | 是否依据 15 日期限，引用是否对应原文 |
+**第一步：先检查解析，暂时不接模型。**
 
-**拿两条明确的候选，单独检查组装结果。**
+安装依赖后，在示例目录运行：
 
-下面人工构造两条候选，用来观察 `pack_context()`；它不是模型实测的检索排序，也不表示实际切分必然得到这两个块。实际块长、序号和分数，应以 `retrieve` 命令输出为准。
+```powershell
+.\.venv\Scripts\python.exe rag.py extract --path refund-policy.pdf
+```
 
-```python
-hits = [
-    {"chunk_id": "demo-member", "source": "refund-policy.md", "chunk_index": 0,
-     "text": "会员订单签收后 15 日内可以申请退货。"},
-    {"chunk_id": "demo-custom", "source": "refund-policy.md", "chunk_index": 1,
-     "text": "定制商品不支持无理由退货。"},
+`extract` 在创建 `Pipeline` 之前执行，不加载嵌入模型，也不访问生成接口。这里已经用真实 PyMuPDF 解析了样例，结果确实是两个页级单元。下面摘录正文中的关键条款与定位字段；标题、页脚、完整路径等字段省略，完整输出以命令为准：
+
+```json
+[
+  {
+    "text": "会员订单签收后 15 日内可以申请退货。\n普通订单签收后 7 日内可以申请退货。",
+    "metadata": {"file_type": ".pdf", "page": 1, "location": "PDF 第 1 页"}
+  },
+  {
+    "text": "定制商品不支持无理由退货。\n退款将在审核通过后 3 个工作日内到账。",
+    "metadata": {"file_type": ".pdf", "page": 2, "location": "PDF 第 2 页"}
+  }
 ]
-context, evidence = pack_context(hits, budget=6000)
-print(context)
 ```
 
-这段组装会得到：
+这时应先把提取结果与 PDF 页面核对：15 日和 7 日是否正确，例外中的“不支持”是否存在，两个条款的页码是否正确。文字没读对，就应该停在解析层排查，后面的检索和生成无法补回丢掉的原文。
 
-```text
-[资料1] 来源：refund-policy.md；块序号：0
-会员订单签收后 15 日内可以申请退货。
+**第二步：让这些单元进入索引。**
 
-[资料2] 来源：refund-policy.md；块序号：1
-定制商品不支持无理由退货。
+```powershell
+.\.venv\Scripts\python.exe rag.py --db ./pdf_demo ingest --path refund-policy.pdf
 ```
 
-同时，`evidence` 保留这两条候选的字段，分别增加 `label="资料1"` 和 `label="资料2"`。真正运行时，候选还包含检索得到的 `score`，组装函数也会原样保留。
+返回值新增 `units`，表示解析得到的原始单元数，本样例为 2；`chunks` 表示切分后的块数，受 Tokenizer 和内容长度影响，不能因为有两页就固定写成两个块。为避免与旧版只含全文来源的索引混用，集合签名已升级为 `units-v2`，旧版本用户需要重新入库。
 
-模型调用接收到的是这段 `context` 与原问题，而不是文件路径本身。把路径写进 Prompt，并不会让远端模型自动打开电脑里的文件；必须把对应正文放进消息里。
+| 数据经过的位置 | 保留什么 | 怎样核对 |
+| --- | --- | --- |
+| PDF 解析单元 | 正文、文件来源、页码 | 逐页对照原 PDF |
+| 切分后的块 | 正文、页码、单元序号、块序号 | 同一块不跨页，期限和条件没有被遗漏 |
+| 向量库记录 | ID、正文、向量和全部元数据 | 第 2 页例外对应的记录仍有 `page=2` |
+| 检索候选 | 正文、分数、来源和原文位置 | 是否找回回答所需的两页内容 |
+| 模型上下文 | 实际选入的正文和连续资料编号 | 条件与例外都装入，编号对应证据清单 |
+| 最终结果 | 答案、模型信息、实际输入证据 | 引用是否支持结论，能否按页回查 |
 
-**再看答案应该怎样对应资料。**
+**第三步：检索同一个问题。**
 
-如果模型正确使用了上面的输入，预期表达可以是：
+```powershell
+.\.venv\Scripts\python.exe rag.py --db ./pdf_demo retrieve -q "会员买的普通商品，签收10天后还能退吗？"
+```
 
-> 根据现有政策，可以申请退货。会员订单的期限是签收后 15 日内，10 天仍在期限内。[资料1] 题目中的普通商品指非定制商品，因此不属于定制商品不支持无理由退货的例外。[资料2]
+现在要检查的不仅是相似度，还包括 `location` 和 `metadata.page`。正确的候选应能覆盖会员 15 日期限及第 2 页的定制商品例外。第 1 页也包含普通订单规则，模型不能因为同页出现 7 日就混用规则。
 
-这段是核验时的预期表达，不是真实接口的实测输出。“可以申请”也不能扩写成“退款已经批准”或“一定到账”，因为资料没有给出本次订单的审批结果。
+本次使用真实多语言 MiniLM、PyTorch CPU、Chroma 和本文 PDF 执行了检索。模型的最大输入长度为 128，本次两页各形成一个块，共写入两个块；四个问题的实际结果如下，分数保留四位小数：
 
-如果只选入会员条款，却跳过了商品例外，即使模型最后答对，也只能说明这道题碰巧得到正确结论，不能证明系统完整保留了规则。对于定制商品问题，这个缺口就可能改变答案。
+| 问题 | 排名第 1 的页面与分数 | 排名第 2 的页面与分数 |
+| --- | --- | --- |
+| 会员买的普通商品，签收10天后还能退吗？ | 第 1 页，0.7066 | 第 2 页，0.5702 |
+| 普通订单签收10天后还能退吗？ | 第 1 页，0.7839 | 第 2 页，0.5423 |
+| 定制商品签收3天后能无理由退货吗？ | 第 2 页，0.7807 | 第 1 页，0.7112 |
+| 退货运费由谁承担？ | 第 2 页，0.4377 | 第 1 页，0.3325 |
 
-因此，检查顺序应该是：先看候选有没有必要条款，再看这些条款有没有进入上下文，最后对照资料核验答案。这样，一句错误回答才能定位到具体环节。
+这组结果说明实际编码、存储与查询已经接通，也能观察到期限问题与例外问题的首位页面不同。但语料只有两个块，默认 `top_k=5` 会取回全部块，不能把“必要条款都出现了”当成检索质量已经达标。运费问题没有答案，仍取得了正分数，也进一步说明相似度衡量的是内容关联程度，不负责证明资料足以回答。
+
+完整解析文本、版本、文件摘要、候选、上下文和实际选入的证据保存在[检索实测记录](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/verification-retrieval.json)中，机器上的绝对路径与路径相关 ID 已去除。可以运行 `python verify_pdf.py` 重新生成记录；它使用真实嵌入模型，但不会调用付费生成接口。模型权重版本、依赖或文件改变后，分数与块数可能不同。
+
+`pack_context()` 会把位置写进资料标题，例如 `[资料1] 来源：refund-policy.pdf；位置：PDF 第 1 页；块序号：…`。这里的资料编号依据本次排序与选择生成，页码依据原文件生成；检索排序变化不应该改变页码。最终 `evidence` 也保留相同位置，便于回查。
+
+**第四步：生成回答，再逐项核验。**
+
+```powershell
+.\.venv\Scripts\python.exe rag.py --db ./pdf_demo query -q "会员买的普通商品，签收10天后还能退吗？"
+```
+
+这一步需要先设置自己的生成服务环境变量，命令见下一节。如果模型正确使用了两页证据，预期结论是：会员订单在签收后 15 日内可以申请，10 天仍在期限内；题目中的普通商品是非定制商品，不属于定制商品例外。答案应分别引用本次实际编号对应的期限与例外资料。
+
+这是核验标准，不是真实接口的实测答案。“可以申请”不能扩写为“退款已批准”或“一定到账”，因为资料没有给出本次订单的审批结果；“退货运费由谁承担”在两页中都没有说明，也不能借相关条款推测。
+
+本次已用真实 PDF、真实解析器、真实切分器和 Chroma 验证两页内容入库，以及位置从记录传到候选、上下文和最终证据清单；该流程检查使用测试向量与替身生成器。真实嵌入与生成的验证范围会单独说明，不把流程检查当作语义效果证明。
 
 ## 怎样检查这条链路真的跑通了
 
@@ -527,9 +685,9 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-这里先安装 CPU 版 PyTorch，方便在没有独立显卡的电脑上练习。依赖文件固定了 Chroma、Sentence Transformers、Transformers、PyTorch 和切分器的直接版本，避免只升级其中一个包后产生兼容问题；完整的间接依赖仍应在自己的运行环境中保存。Sentence Transformers 5.1.2 的依赖要求 Transformers 低于 5，本例使用 4.57.1。[官方依赖声明](https://github.com/huggingface/sentence-transformers/blob/v5.1.2/pyproject.toml)
+这里先安装 CPU 版 PyTorch，方便在没有独立显卡的电脑上练习。依赖文件固定了模型、向量库、切分器及文档解析库的直接版本，避免只升级其中一个包后产生兼容问题；完整的间接依赖仍应在自己的运行环境中保存。Sentence Transformers 5.1.2 的依赖要求 Transformers 低于 5，本例使用 4.57.1。[官方依赖声明](https://github.com/huggingface/sentence-transformers/blob/v5.1.2/pyproject.toml)
 
-第一次加载嵌入模型需要下载权重；也可以将 `RAG_EMBEDDING_MODEL` 设置为已下载完整的本地模型目录。入库和查询使用相同配置。
+入库和检索第一次加载嵌入模型需要下载权重；也可以将 `RAG_EMBEDDING_MODEL` 设置为已下载完整的本地模型目录。入库和查询使用相同配置。
 
 **先入库，检查文件有没有变成记录。**
 
@@ -537,7 +695,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe rag.py ingest --path refund-policy.md
 ```
 
-程序返回 `file`、`chunks` 和 `total`。`chunks` 是这次处理的块数，`total` 是集合当前总量，两者在多文档场景下不一定相同。这里成功只表示记录写入了，不表示所有问题都能正确检索。
+程序返回 `file`、`units`、`chunks` 和 `total`。`chunks` 是这次处理的块数，`total` 是集合当前总量，两者在多文档场景下不一定相同。这里成功只表示记录写入了，不表示所有问题都能正确检索。
 
 **再只检索，检查问题有没有找对正文。**
 
@@ -551,7 +709,7 @@ py -3.12 -m venv .venv
 
 ```powershell
 $env:DEEPSEEK_API_KEY = "替换为你自己的密钥"
-$env:RAG_CHAT_MODEL = "deepseek-flash"
+$env:RAG_CHAT_MODEL = "填写账户可用的模型名"
 
 .\.venv\Scripts\python.exe rag.py query -q "会员买的普通商品，签收10天后还能退吗？"
 ```
@@ -593,24 +751,25 @@ $env:RAG_CHAT_MODEL = "deepseek-flash"
 
 **区分流程测试与模型效果验证。**
 
-配套的 `test_rag.py` 用真实 Chroma 和切分器检查重复入库、更新清理、空库、预算、证据编号和生成请求结构。三个回归用例已通过；测试向量和生成响应由替身提供，因此这些结果验证的是存储与控制流，不能当成真实中文语义召回或模型问答效果。运行方法是：
+配套的 `test_rag.py` 与 `test_loader.py` 用真实格式文件和解析库检查 PDF、DOCX、PPTX、XLSX、HTML、CSV、JSON、JSONL；再用真实 Chroma 和切分器检查位置传递、重复入库、更新清理、解析失败后保留旧索引、空库、预算、证据编号和生成请求结构。十个回归用例已通过；测试向量和生成响应由替身提供，因此这些结果验证的是存储与控制流，不能当成真实中文语义召回或模型问答效果。运行方法是：
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest -v test_rag
+.\.venv\Scripts\python.exe -m unittest -v test_rag test_loader
 ```
 
-本次检查中，固定版本后的嵌入模型库已能正常导入，但模型权重下载未完成；真实语义检索及付费生成接口的端到端结果尚未验证。前面的两条候选和预期回答都是讲解用的示意，不作为实测结果。
+本次已经完成真实嵌入模型的 PDF 入库与四道问题的检索，并保存了记录；付费生成接口的端到端答案尚未验证。PDF 解析摘录和检索分数来自实际运行，预期回答是核验标准，不作为真实生成结果。测试替身负责检查控制流，真实嵌入负责检查本次实际检索，两者的用途不同。
 
 实际使用时，还应依次运行本篇开头的会员、普通订单、定制商品与运费问题，记录检索原文、实际输入证据及最终答案。只有把这三项对起来，才能判断当前配置对这些问题是否有效。
 
 ## 最后收束成一个完整认识
 
-这篇把前面讨论的各个组件放回了同一个程序。文档经过加载、切分和编码进入知识库；用户的问题触发检索；候选资料经过选择和编号成为模型上下文；模型再根据这些内容生成回答。
+这篇把前面讨论的各个组件放回了同一个程序。文档先解析为带原始位置的单元，再经过切分和编码进入知识库；用户的问题触发检索；候选资料经过选择和编号成为模型上下文；模型再根据这些内容生成回答。
 
 前面文章里的概念，也就有了具体落点：
 
 | 已有理解 | 本篇的代码位置 |
 | --- | --- |
+| 不同文件先统一正文与原始位置 | `DocumentLoader.load()` 返回 `DocumentUnit` |
 | 文本要先切成证据单元 | `Pipeline.ingest()` 调用切分器 |
 | 正文、向量、来源和身份要一起保存 | `upsert()` 的四组对应数据 |
 | 检索返回候选，不直接返回答案 | `Pipeline.retrieve()` |
@@ -620,7 +779,7 @@ $env:RAG_CHAT_MODEL = "deepseek-flash"
 
 把这些实现放在一起，可以先立住三个判断：
 
-1. **组件能运行，还需要接口能衔接。**入库返回记录，检索返回候选，上下文处理返回实际证据，生成返回答案。每一步的数据含义明确，整条链路才容易连接和排查。
+1. **组件能运行，还需要接口能衔接。**解析返回带原文位置的单元，入库保存记录，检索返回候选，上下文处理返回实际证据，生成返回答案。每一步的数据含义明确，整条链路才容易连接和排查。
 2. **检索到的内容与模型读到的内容要分开记录。**候选可能因为长度预算被跳过，最终展示的证据应与模型输入一致，资料编号也应在选择后确定。
 3. **生成完成以后，仍然要对照证据检查。**程序能够返回答案和来源，说明有了核验入口；结论是否保留条件、例外和适用范围，还要回到原文判断。
 
@@ -630,9 +789,9 @@ $env:RAG_CHAT_MODEL = "deepseek-flash"
 
 当前程序适合本地小文件实践，更新不是原子事务，也没有多用户权限隔离。理解这些边界以后，前面讲过的混合检索、重排和评估，就可以围绕现有接口逐步接入。
 
-目前入口只接受 Markdown 和 TXT，是因为它们已经是可直接阅读的文本。换成 PDF、Word、PPT、Excel 或网页，首先遇到的问题就变成了：怎样提取正文，又怎样保留标题、页码、表格关系和来源位置？
+现在入口已经能够处理 PDF、Word、PPT、Excel 和本地 HTML 等资料，后面的切分、索引、检索与问答共用同一条主干。但“能够提取文本”还不等于“完整理解文件结构”：扫描件需要 OCR，复杂表格需要保留表头与合并关系，多栏 PDF 需要恢复阅读顺序，PPT 图片与图表可能还要视觉处理。
 
-这就是接下来要展开的文档解析问题。只要解析层能够产出准确、带来源的内容，后面的切分、索引、检索和问答就有了可以继续复用的主干。
+接下来讨论文档解析工具链，就从这些真实失败场景继续往下走：怎样判断当前提取是否可靠，什么时候换解析策略，以及怎样在保留结构的同时继续接入本篇的统一接口。
 
 ## 参考资料
 
@@ -643,3 +802,8 @@ $env:RAG_CHAT_MODEL = "deepseek-flash"
 - [Chroma：写入与更新数据](https://docs.trychroma.com/docs/collections/update-data)
 - [Chroma：查询与结果结构](https://docs.trychroma.com/docs/querying-collections/query-and-get)
 - [DeepSeek：Chat Completions 接口](https://api-docs.deepseek.com/api/create-chat-completion/)
+
+- [PyMuPDF：文本提取与阅读顺序](https://pymupdf.readthedocs.io/en/latest/recipes-text.html)
+- [python-docx：正文块遍历](https://python-docx.readthedocs.io/en/latest/api/document.html)
+- [python-pptx：文本和表格](https://python-pptx.readthedocs.io/en/latest/user/quickstart.html)
+- [openpyxl：工作簿读取](https://openpyxl.readthedocs.io/en/stable/tutorial.html)

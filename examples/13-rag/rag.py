@@ -1,4 +1,4 @@
-"""第 13 篇配套示例：单用户、本地 Markdown/TXT 知识库。"""
+"""第 13 篇配套示例：单用户、本地多格式文档知识库。"""
 
 import argparse
 import hashlib
@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+from loader import DocumentLoader
 
 
 SYSTEM_PROMPT = """你是文档问答助手。
@@ -50,6 +52,7 @@ class Pipeline:
             "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         )
         self.embedder = embedder or Embedder(model_name)
+        self.loader = DocumentLoader()
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=80,
             chunk_overlap=12,
@@ -59,7 +62,7 @@ class Pipeline:
         )
         # 编码器或切分配置变化时使用新集合，防止混用不同语义空间。
         signature = hashlib.sha256(
-            f"{model_name}|tokens80-overlap12|cosine|v1".encode()
+            f"{model_name}|tokens80-overlap12|cosine|units-v2".encode()
         ).hexdigest()[:16]
         self.collection = chromadb.PersistentClient(path=str(db_path)).get_or_create_collection(
             name=f"rag_{signature}",
@@ -69,12 +72,15 @@ class Pipeline:
 
     def ingest(self, file_path):
         path = Path(file_path).resolve()
-        if not path.is_file() or path.suffix.lower() not in {".md", ".txt"}:
-            raise ValueError("请指定一个存在的 .md 或 .txt 文件")
-        text = path.read_text(encoding="utf-8-sig").strip()
-        if not text:
-            raise ValueError("文件没有可用正文，保留原有索引")
-        texts = [part.strip() for part in self.splitter.split_text(text) if part.strip()]
+        units = self.loader.load(path)
+        texts, metadatas = [], []
+        # 每个原始位置单独切分；一块不会跨越 PDF 页或 PPT 幻灯片。
+        for unit_index, unit in enumerate(units):
+            for part in self.splitter.split_text(unit.text):
+                if part.strip():
+                    metadatas.append({**unit.metadata, "unit_index": unit_index,
+                                      "chunk_index": len(texts)})
+                    texts.append(part.strip())
         if not texts:
             raise ValueError("没有生成有效文本块")
         source = str(path)
@@ -91,13 +97,13 @@ class Pipeline:
             self.collection.upsert(
                 ids=ids[start:end], documents=texts[start:end],
                 embeddings=vectors[start:end],
-                metadatas=[{"source": source, "chunk_index": i}
-                           for i in range(start, min(end, len(texts)))],
+                metadatas=metadatas[start:end],
             )
         stale_ids = sorted(set(old_ids) - set(ids))
         for start in range(0, len(stale_ids), 64):
             self.collection.delete(ids=stale_ids[start:start + 64])
-        return {"file": source, "chunks": len(texts), "total": self.collection.count()}
+        return {"file": source, "units": len(units), "chunks": len(texts),
+                "total": self.collection.count()}
 
     def retrieve(self, question, top_k=5, threshold=-1.0):
         question = question.strip()
@@ -122,6 +128,7 @@ class Pipeline:
             if score >= threshold:
                 hits.append({"chunk_id": chunk_id, "text": text,
                              "source": meta["source"], "chunk_index": meta["chunk_index"],
+                             "location": meta["location"], "metadata": meta,
                              "score": score})
         return hits
 
@@ -131,6 +138,7 @@ def pack_context(hits, budget=6000):
     for hit in hits:
         number = len(evidence) + 1
         block = (f"[资料{number}] 来源：{Path(hit['source']).name}；"
+                 f"位置：{hit.get('location', '全文')}；"
                  f"块序号：{hit['chunk_index']}\n{hit['text']}")
         cost = len(block) + (2 if parts else 0)
         if used + cost > budget:
@@ -192,6 +200,8 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     ingest = sub.add_parser("ingest")
     ingest.add_argument("--path", required=True)
+    extract = sub.add_parser("extract", help="只解析文件，不加载模型或访问生成服务")
+    extract.add_argument("--path", required=True)
     for name in ("retrieve", "query"):
         command = sub.add_parser(name)
         command.add_argument("--question", "-q", required=True)
@@ -201,6 +211,11 @@ def main():
             command.add_argument("--context-chars", type=int, default=6000)
     args = parser.parse_args()
     try:
+        if args.command == "extract":
+            result = [{"text": unit.text, "metadata": unit.metadata}
+                      for unit in DocumentLoader().load(args.path)]
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
         pipeline = Pipeline(args.db)
         if args.command == "ingest":
             result = pipeline.ingest(args.path)
