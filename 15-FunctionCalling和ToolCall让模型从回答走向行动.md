@@ -10,7 +10,7 @@
 
 > 怎样把用户的自然语言需求，变成程序可以检查、执行并回传结果的工具调用？
 
-先把一次调用讲完整，再讨论多次调用与失败处理。示例继续使用虚构售后场景，实际执行的工具只有“查询退款状态”。提交申请涉及写入业务数据，放在边界部分解释，不用一个打印“成功”的函数冒充真实业务操作。
+先用只读的退款状态查询，把一次调用讲完整；再用退货申请说明写入操作多了哪些步骤：准备草稿、确认具体内容、复查条件、创建记录，以及重复请求怎样处理。两个例子都使用虚构售后数据，申请示例会真正创建本地内存记录，但不连接真实订单、审核或支付系统。
 
 | 本篇要看清的环节 | 读完后应该能回答的问题 |
 | --- | --- |
@@ -19,6 +19,7 @@
 | 工具描述 | 名称、说明、参数规则分别告诉模型什么 |
 | 消息往返 | 调用请求与执行结果怎样配对，为什么还要再次调用模型 |
 | 程序实现 | 怎样检查参数、限制工具并完成一个有终点的循环 |
+| 申请提交 | 草稿、确认、提交、审核和退款分别代表什么 |
 | 执行边界 | 多工具、重试、后台任务和业务写入要注意什么 |
 
 ## 从解释退货规则，到查询一笔订单
@@ -84,7 +85,7 @@ sequenceDiagram
 
 本例把工具命名为 `get_refund_status`，说明它只查退款状态、不提交退款，并要求订单号来自用户。参数使用一种描述 JSON 数据结构的规则，叫 **JSON Schema**。这里先用其中最基本的部分：参数整体是对象，里面有一个名为 `order_id` 的字符串字段。
 
-下面开始按顺序构造一个完整脚本。将下文六个 Python 代码块依次放入同一个 `tool_demo.py` 文件，可以直接运行；中间的 JSON 块只用于解释消息，不需要复制进脚本。也可以从[配套示例目录](https://github.com/benx92/ai-learning-notes/tree/main/examples/15-tool-calling)取得完整文件和运行说明。`examples/15-tool-calling` 就是本篇代码的存放位置，示例可以独立运行。
+下面开始按顺序构造一个完整查询脚本。从这里到“命令行入口”的六个 Python 代码块依次放入同一个 `tool_demo.py` 文件，可以直接运行；中间的 JSON 块只用于解释消息，不需要复制进脚本。后面的申请示例单独保存为 `return_demo.py`。也可以从[配套示例目录](https://github.com/benx92/ai-learning-notes/tree/main/examples/15-tool-calling)取得完整文件和运行说明。`examples/15-tool-calling` 就是本篇代码的存放位置，示例可以独立运行。
 
 代码只使用 Python 标准库，不需要安装模型 SDK。在线请求使用 DeepSeek 的 Chat Completions 接口格式，其他厂商、其他接口的字段未必相同，不能直接混用。本例接口字段按官方文档核对，并显式使用非思考、非流式模式，先集中观察工具消息的往返。
 
@@ -479,7 +480,277 @@ $env:DEEPSEEK_MODEL = "deepseek-flash"
 
 其中的模型响应和网络返回由测试数据替代，不发送在线请求。检查通过说明这些程序分支按预期工作；在线模型是否正确选择工具，仍需使用前面的输入逐项观察。
 
-## 多工具与真实业务：哪些地方需要继续加约束
+## 从查询状态到提交申请：把写入流程补完整
+
+前面的查询只读取已有记录。退货申请则要创建新记录，用户输入、模型请求和后端状态都会影响执行结果，因此不能简单复制查询函数，再把返回值换成“提交成功”。
+
+先用一笔新的虚构订单 `A3003` 把流程走完。它属于当前演示用户，是会员订单，商品不是定制品，签收已经10天，尚未提交申请。教学政策仍沿用前文：会员申请期限15日、普通订单7日、定制商品不支持无理由退货。这只是演示规则，不代表实际业务制度。
+
+用户说：“订单A3003尺寸不合适，帮我申请退货。”这里至少有两个需要保留的输入：订单号和退货原因。会员身份、签收时间、商品类别与当前状态，应从业务记录取得；申请期限来自已确认适用的政策。不能让模型自行填一个“签收3天”来满足条件。
+
+**先准备草稿，让用户看清即将发生什么。**
+
+可以把写入过程拆成两个工具：
+
+| 工具 | 模型提供的参数 | 后端完成的工作 |
+| --- | --- | --- |
+| `prepare_return_application` | `order_id`、`reason` | 检查归属和教学规则，保存草稿，返回草稿编号和待确认内容 |
+| `submit_return_application` | `draft_id` | 检查这份草稿是否已确认，再复查当前条件，创建申请记录 |
+
+准备草稿会在应用中保存临时内容，但不会产生正式退货申请。工具返回 `awaiting_confirmation`，表示等待确认；并非审核已经通过。
+
+对A3003的第一步请求，可以用下面的参数对象理解：
+
+```json
+{"order_id": "A3003", "reason": "尺寸不合适"}
+```
+
+放进前面的 `function.arguments` 时，仍需编码成 JSON 字符串。对应工具声明可以这样组织；这段 JSON 用于解释传给模型的 `tools` 参数，不需要复制进下面的独立 Python 脚本：
+
+```json
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "prepare_return_application",
+      "description": "为用户提供的订单准备退货草稿，需要订单号和退货原因，不创建正式申请。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "order_id": {"type": "string", "description": "用户提供的订单号"},
+          "reason": {"type": "string", "description": "用户提供的退货原因"}
+        },
+        "required": ["order_id", "reason"],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "submit_return_application",
+      "description": "提交用户在应用界面确认过的退货草稿；只能使用准备工具返回的草稿编号。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "draft_id": {"type": "string", "description": "准备工具返回的草稿编号"}
+        },
+        "required": ["draft_id"],
+        "additionalProperties": false
+      }
+    }
+  }
+]
+```
+
+准备工具要求订单号和原因两个字符串字段；提交工具则只接受一个字符串字段 `draft_id`，两者都拒绝额外参数。模型不应提交 `current_user`、`approved` 或 `confirmed` 来决定自己的权限。
+
+后端保存草稿并产生编号，例如 `draft_abc`，然后应用展示：
+
+```text
+待确认操作：为订单A3003创建退货申请
+退货原因：尺寸不合适
+提交后状态：等待审核
+本次操作不表示退款已完成
+```
+
+用户确认的是这份具体草稿。订单号或原因修改后，应重新生成草稿、展示并确认。不能拿对A3003的确认去提交另一笔订单，也不能把历史里的“好的”解释成对所有未来操作的同意。
+
+**确认由应用记录，模型请求不能自行证明确认。**
+
+下方示例通过终端展示草稿，只有用户输入“确认提交”才记录确认。真实网页可以用绑定草稿编号的确认按钮，由认证会话发起确认请求。这里只演示状态怎样传递，没有实现真实登录或网页接口。
+
+确认之后，模型可以请求 `submit_return_application`，但最终决定权仍在执行器。即使模型提前调用提交工具，后端也会返回 `confirmation_required`。如果使用前面的消息循环，这个失败结果同样带原调用 ID 回填，再向用户说明尚未提交，而不是缺一个工具结果就继续生成。
+
+这里还有一种更简单的产品做法：确认按钮直接调用后端提交，成功后再让模型解释结果。不一定要让模型再选择一次工具。无论选择哪一种，确认都应对应固定草稿，并由后端核验。
+
+**提交时复查，是因为状态可能已经变化。**
+
+生成草稿时可申请，不代表几分钟后仍可申请。用户可能在另一个页面提交过，订单状态可能更新，草稿本身也可能过期。因此提交阶段要再次核对归属、有效期、申请条件和是否重复。
+
+本例把草稿有效期设为5分钟，复用之前的教学规则，并在一个受保护的代码区间中完成检查和写入，避免同一进程内的两个提交同时通过检查。创建成功后保存申请编号，订单标为已申请。
+
+返回状态可以是：
+
+```json
+{
+  "ok": true,
+  "application_id": "return_xyz",
+  "order_id": "A3003",
+  "status": "submitted",
+  "review_status": "pending"
+}
+```
+
+模型此时可以回答“退货申请已提交，申请编号为……，等待审核”。`submitted` 表示记录已创建，`pending` 表示审核未完成，都不能扩写成“审核通过”或“退款到账”。
+
+| 阶段 | 已经发生什么 | 还不能承诺什么 |
+| --- | --- | --- |
+| 草稿已准备 | 内容已整理，等待确认 | 正式申请已创建 |
+| 用户已确认 | 用户认可这份草稿对应的操作 | 后端已经提交成功 |
+| 申请已提交 | 取得已保存的申请编号 | 审核一定通过 |
+| 审核通过 | 满足业务后续处理条件 | 款项已经到账 |
+| 退款处理完成 | 支付或退款系统返回对应结果 | 银行侧到账时间必然与处理时间相同 |
+
+后面三个业务阶段的细节应以实际系统状态为准。本例只创建申请，未实现审核、寄回商品或支付退款。
+
+**把申请流程单独运行起来。**
+
+下面完整代码保存为 `return_demo.py`，与前面的查询脚本放在同一目录。它使用固定请求代替模型选择，重点观察写入流程；没有在线模型或真实业务接口。要让模型使用这些申请工具，还需提供对应工具描述，并把请求交给这里的执行器。原 `tool_demo.py` 仍保持只读，不会因为有了第二个文件就自动获得写入能力。
+
+```python
+"""退货申请的本地教学演示：只在当前进程中创建记录，不连接真实业务。"""
+
+import copy
+import json
+import sys
+import time
+import uuid
+from threading import Lock
+
+
+class ReturnService:
+    def __init__(self):
+        self.orders = {
+            "A3003": {"owner": "demo-user", "member": True, "days": 10,
+                      "custom": False, "applied": False},
+            "A3004": {"owner": "demo-user", "member": False, "days": 10,
+                      "custom": False, "applied": False},
+            "A3005": {"owner": "demo-user", "member": True, "days": 3,
+                      "custom": True, "applied": False},
+        }
+        self.drafts = {}
+        self.applications = {}
+        self.lock = Lock()
+
+    def _check(self, order_id, user):
+        order = self.orders.get(order_id)
+        if order is None or order["owner"] != user:
+            return "not_found_or_forbidden"
+        if order["applied"]:
+            return "already_applied"
+        if order["custom"]:
+            return "custom_item_not_supported"
+        limit = 15 if order["member"] else 7
+        if order["days"] > limit:
+            return "outside_application_window"
+        return None
+
+    def prepare(self, order_id, reason, user):
+        if (not isinstance(order_id, str) or not isinstance(reason, str)
+                or not reason.strip() or len(reason) > 200):
+            return {"ok": False, "error": "invalid_arguments"}
+        with self.lock:
+            error = self._check(order_id, user)
+            if error:
+                return {"ok": False, "error": error}
+            draft_id = "draft_" + uuid.uuid4().hex
+            self.drafts[draft_id] = {
+                "user": user, "order_id": order_id, "reason": reason.strip(),
+                "confirmed": False, "expires": time.monotonic() + 300,
+            }
+            return {"ok": True, "status": "awaiting_confirmation",
+                    "draft_id": draft_id, "order_id": order_id,
+                    "reason": reason.strip(), "operation": "创建退货申请，等待审核"}
+
+    def confirm_from_ui(self, draft_id, user):
+        """仅由展示该草稿的确认界面调用；不作为模型工具暴露。"""
+        with self.lock:
+            draft = self.drafts.get(draft_id)
+            if draft is None or draft["user"] != user:
+                return {"ok": False, "error": "invalid_draft"}
+            if time.monotonic() >= draft["expires"]:
+                return {"ok": False, "error": "draft_expired"}
+            draft["confirmed"] = True
+            return {"ok": True, "status": "confirmed"}
+
+    def submit(self, draft_id, user):
+        with self.lock:
+            draft = self.drafts.get(draft_id)
+            if draft is None or draft["user"] != user:
+                return {"ok": False, "error": "invalid_draft"}
+            if not draft["confirmed"]:
+                return {"ok": False, "error": "confirmation_required"}
+            if draft_id in self.applications:
+                return {"ok": True, "reused": True,
+                        **copy.deepcopy(self.applications[draft_id])}
+            if time.monotonic() >= draft["expires"]:
+                return {"ok": False, "error": "draft_expired"}
+            error = self._check(draft["order_id"], user)
+            if error:
+                return {"ok": False, "error": error}
+            record = {"application_id": "return_" + uuid.uuid4().hex,
+                      "order_id": draft["order_id"], "reason": draft["reason"],
+                      "status": "submitted", "review_status": "pending",
+                      "source": "本地进程中的虚构申请记录"}
+            self.applications[draft_id] = record
+            self.orders[draft["order_id"]]["applied"] = True
+            return {"ok": True, "reused": False, **copy.deepcopy(record)}
+
+
+def execute_return_tool(service, name, arguments, current_user):
+    try:
+        args = json.loads(arguments)
+    except (json.JSONDecodeError, TypeError):
+        return {"ok": False, "error": "invalid_json"}
+    if not isinstance(args, dict):
+        return {"ok": False, "error": "invalid_arguments"}
+    if name == "prepare_return_application" and set(args) == {"order_id", "reason"}:
+        return service.prepare(args["order_id"], args["reason"], current_user)
+    if name == "submit_return_application" and set(args) == {"draft_id"}:
+        if not isinstance(args["draft_id"], str):
+            return {"ok": False, "error": "invalid_arguments"}
+        return service.submit(args["draft_id"], current_user)
+    return {"ok": False, "error": "unknown_tool_or_invalid_arguments"}
+
+
+if __name__ == "__main__":
+    sys.stdin.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8")
+    service = ReturnService()
+    user = "demo-user"
+    draft = execute_return_tool(service, "prepare_return_application",
+                                '{"order_id":"A3003","reason":"尺寸不合适"}', user)
+    print("申请草稿：", json.dumps(draft, ensure_ascii=False))
+    draft_id = draft["draft_id"]
+    arguments = json.dumps({"draft_id": draft_id})
+    print("确认前提交：", execute_return_tool(service, "submit_return_application", arguments, user))
+    if input("输入“确认提交”创建上述本地教学申请，其他输入取消：").strip() != "确认提交":
+        print("已取消，未创建申请。")
+        raise SystemExit(0)
+    service.confirm_from_ui(draft_id, user)
+    first = execute_return_tool(service, "submit_return_application", arguments, user)
+    retry = execute_return_tool(service, "submit_return_application", arguments, user)
+    print("首次提交：", json.dumps(first, ensure_ascii=False))
+    print("重复提交：", json.dumps(retry, ensure_ascii=False))
+    print("本地申请记录数量：", len(service.applications))
+```
+
+可以先顺着三个方法读：`prepare()` 保存草稿；`confirm_from_ui()` 记录界面确认；`submit()` 创建申请。`execute_return_tool()` 只允许准备和提交两个名称，身份从应用另外传入。确认方法没有加入允许列表，所以模型不能调用它替用户确认。
+
+如果接到实际模型对话中，仍沿用前面的往返顺序：用上面的声明提供工具，取得请求后，将工具名与 `arguments` 交给 `execute_return_tool()`；再把结果编码进带原调用ID的 `tool` 消息。草稿与确认状态由同一个后端保存，用户确认后继续对话时也沿用它们。不能每来一条消息就重新创建 `ReturnService()`，否则上一轮草稿会丢失。查询脚本的系统规则和执行器只支持读取，因此不能仅替换 `tools` 就宣称申请接入完成，还需同步配置这条申请路径。
+
+代码中的 `uuid` 生成草稿与申请编号，`time.monotonic()` 用来计算本进程内经过的时间。`Lock` 让同一进程里的提交检查与写入依次完成；`copy.deepcopy()` 返回记录副本，避免调用者通过改返回对象直接改掉已保存结果。真实后端应使用持久化记录、可恢复的时间戳和数据库事务保证相应约束，不能把这个进程内的锁扩展理解成跨服务保障。
+
+运行命令是：
+
+```powershell
+.\.venv\Scripts\python.exe return_demo.py
+```
+
+先看到草稿和一次被拒绝的提前提交，错误为 `confirmation_required`。输入“确认提交”后，程序执行首次提交和一次重复提交：两次返回相同的申请编号，第二次 `reused: true`，本地申请记录数量仍为1。输入其他内容则取消，记录数量保持为0。每次重新启动都会重建教学数据，进程退出后记录消失。
+
+**重复请求沿用同一份草稿，不重新创建申请。**
+
+第一次提交可能成功，但响应没有送达。如果重试仍携带原草稿编号，本例会返回已保存的同一份申请。这就是“重复到达仍只创建一次”的幂等行为。
+
+这里用草稿编号关联固定的用户、订单和原因，作为教学中的业务操作标识。模型工具请求的调用 ID 只负责消息配对，两次请求的调用 ID 即使不同，也应对应同一份业务结果。若每次重试都创建新草稿，就失去了这个关联；本例还通过订单的已申请状态阻止第二份草稿重复创建申请。
+
+真实系统需要把操作标识、请求内容与执行结果持久保存，并通过唯一约束和事务处理并发。调用同一标识却改变订单或原因时，应拒绝冲突，不能默默覆盖原内容。超时且暂时无法确认结果时，应说明“提交结果待确认”，按原操作标识查状态，再决定是否重试，而不是立即声称失败并创建新申请。
+
+本例的边界检查包括：未确认先提交、另一用户提交草稿、草稿过期、普通订单超过7日、定制商品、确认后订单条件变化、重复提交与新增草稿重复申请。申请规则和确认状态在程序中检查，模型的自然语言判断不能替代这些检查。
+
+**再看多工具、重试和业务边界。**
 
 最小循环接通以后，容易把“可以调用”理解成“可以任意执行”。放进业务场景时，还需要回到任务依赖和执行结果。
 
@@ -503,9 +774,9 @@ $env:DEEPSEEK_MODEL = "deepseek-flash"
 
 **提交动作由业务后端控制。**
 
-真正提供“提交退货申请”工具时，除了订单归属，还要检查适用制度、当前状态、重复申请与用户是否确认这次动作。确认应对应具体订单和操作，不能从一句泛泛的查询意图推导出提交权限。即使用户表达了提交意图，业务条件也仍需后端核验。
+把上面的教学申请换成真实接口时，还要补足实际业务要求，例如商品数量、部分退货、附件、退货渠道、政策版本与审计记录。应先定义应用支持的业务范围，不能把“会员15日”这一条教学判断扩展成完整售后规则。
 
-模型工具描述里的“不提交退款”，帮助模型理解用途；本例没有写入分支，才让程序无法执行退款。实际权限应落实在可用工具列表、执行器和后端权限上，不能只寄希望于提示词。
+模型工具描述里的“不提交退款”，帮助模型理解用途；前面的查询脚本只允许读取，申请脚本也只允许准备草稿和创建申请记录，两者都没有支付退款分支。实际权限应落实在可用工具列表、执行器和后端权限上，不能只寄希望于提示词。
 
 **工具结果仍然需要检查。**
 
@@ -515,13 +786,13 @@ $env:DEEPSEEK_MODEL = "deepseek-flash"
 
 ## 最后收束成一个完整认识
 
-这篇从售后规则自然走到了订单状态：资料问答解决“怎样根据已有证据解释”，工具调用补上“怎样取得当前结果或请求实际操作”。两者可以配合，但各自的事实来源与执行责任要清楚。
+这篇从售后规则自然走到了订单状态与退货申请：资料问答解决“怎样根据已有证据解释”，查询工具取得记录，写入工具在明确确认与检查之后创建申请。两者可以配合，但各自的事实来源与执行责任要清楚。
 
 现在可以先立住三个理解：
 
 1. **模型生成调用请求，程序完成实际执行。**Function Calling 让自然语言需求能够表达为工具名和参数；请求是否允许、业务是否成功，要由应用与后端检查。
 2. **一次调用必须把请求与结果接成完整往返。**工具描述帮助选择，参数检查决定能否执行，调用ID维持结果配对，回填后的消息让模型有依据组织回答。
-3. **工具能调用，还需要有执行边界。**身份、权限、错误状态、重复操作和数量预算，都应落到程序与业务接口中。模型说“完成”不能代替实际执行成功。
+3. **写入操作需要把确认、提交和业务完成分开。**确认绑定具体草稿，提交时复查条件，重复请求对应同一份结果；申请创建成功不等于审核通过或退款到账。身份、权限与执行预算也应落到程序与后端。
 
 因此，这篇最重要的认识可以收束成一句话：
 
