@@ -17,11 +17,11 @@ py -3.12 -m venv .venv
 
 .\.venv\Scripts\python.exe rag.py extract --path refund-policy.pdf
 .\.venv\Scripts\python.exe rag.py --db ./pdf_demo ingest --path refund-policy.pdf
-.\.venv\Scripts\python.exe rag.py --db ./pdf_demo retrieve -q "会员买的普通商品，签收10天后还能退吗？"
+.\.venv\Scripts\python.exe rag.py --db ./pdf_demo retrieve -q "会员买的非定制商品，签收10天后还能申请退货吗？"
 
 $env:DEEPSEEK_API_KEY = "替换为你自己的密钥"
 $env:RAG_CHAT_MODEL = "填写账户可用的模型名"
-.\.venv\Scripts\python.exe rag.py --db ./pdf_demo query -q "会员买的普通商品，签收10天后还能退吗？"
+.\.venv\Scripts\python.exe rag.py --db ./pdf_demo query -q "会员买的非定制商品，签收10天后还能申请退货吗？"
 ```
 
 首次加载嵌入模型需要联网下载权重。使用已经下载的完整模型目录时，在入库前设置：
@@ -58,6 +58,8 @@ $env:RAG_EMBEDDING_MODEL = "D:/models/paraphrase-multilingual-MiniLM-L12-v2"
 
 `verify_pdf.py` 使用真实模型与临时数据库重跑四道问题，只验证解析和检索，写出 `verification-retrieval.json`，不会调用生成接口。记录中的路径已简化为文件名，路径相关块 ID 已去除。
 
+该验证脚本与已保存记录保留较早的问法“会员买的普通商品，签收10天后还能退吗？”，其中“普通商品”指非定制商品。正文与上面的运行命令已明确写为“非定制商品”；问法改变后，旧分数不能直接当成新问法的实测结果。
+
 ## 调试命令
 
 ```powershell
@@ -65,10 +67,10 @@ $env:RAG_EMBEDDING_MODEL = "D:/models/paraphrase-multilingual-MiniLM-L12-v2"
 .\.venv\Scripts\python.exe rag.py --db ./pdf_demo retrieve -q "定制商品签收3天后能无理由退货吗？" --threshold 0.4
 
 # 检索到了文本但上下文预算容不下时，不应发起生成请求。
-.\.venv\Scripts\python.exe rag.py --db ./pdf_demo query -q "会员买的普通商品，签收10天后还能退吗？" --context-chars 1
+.\.venv\Scripts\python.exe rag.py --db ./pdf_demo query -q "会员买的非定制商品，签收10天后还能申请退货吗？" --context-chars 1
 
 # 选择一个尚未入库的新目录，应返回资料不足。
-.\.venv\Scripts\python.exe rag.py --db ./empty_demo query -q "会员买的普通商品，签收10天后还能退吗？"
+.\.venv\Scripts\python.exe rag.py --db ./empty_demo query -q "会员买的非定制商品，签收10天后还能申请退货吗？"
 ```
 
 `--db` 是全局参数，放在子命令前。默认数据库目录相对当前工作目录解析；从其他目录运行时请显式指定同一个数据库位置。

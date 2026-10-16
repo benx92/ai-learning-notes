@@ -74,19 +74,28 @@ flowchart TD
 
 程序从`refund-policy.pdf`这个文件路径开始。先看加载器内部使用的PDF读取方式，再检查它怎样把正文与位置交给下一步。
 
-这次使用 PyMuPDF。下面是一个独立的小例子，可以看见“文件变成文字”的过程：
+这次使用PyMuPDF。下面直接摘自[`loader.py`中的`DocumentLoader._pdf()`](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/loader.py)，展示项目实际怎样逐页读取。它是类中的方法，不是单独运行的脚本：
 
 ```python
-import pymupdf
+@staticmethod
+def _pdf(path):
+    import pymupdf
 
-with pymupdf.open("refund-policy.pdf") as document:
-    for page_number, page in enumerate(document, 1):
-        text = page.get_text("text", sort=True)
-        print("页码：", page_number)
-        print(text)
+    with pymupdf.open(path) as document:
+        if document.needs_pass:
+            raise ValueError("PDF 已加密，请先解密后再解析")
+        for number, page in enumerate(document, 1):
+            text = page.get_text("text", sort=True).strip()
+            if not text:
+                raise ValueError(f"PDF 第 {number} 页未提取到文字；请检查空白页或先做 OCR")
+            yield text, {"page": number, "location": f"PDF 第 {number} 页"}
 ```
 
-`open()`打开文件，循环一次处理一页，`get_text()`取得这一页的文字。`sort=True`尝试按页面位置整理文字顺序。这里先面对简单排版，不要求它自动恢复所有复杂表格和多栏关系。[PyMuPDF文本提取说明](https://pymupdf.readthedocs.io/en/latest/recipes-text.html)
+`path`是传入的PDF路径，`open()`打开文件，`enumerate(document, 1)`从1开始给物理页面编号，`get_text()`取得文字，`.strip()`去掉首尾空白。`sort=True`尝试按页面位置整理文字顺序，不会自动恢复所有复杂表格和多栏关系。[PyMuPDF文本提取说明](https://pymupdf.readthedocs.io/en/latest/recipes-text.html)
+
+项目里的读取函数需要把结果交给后续程序，所以这里用`yield`，而不是`print()`。它每次提供一对数据：这一页的正文，以及包含`page`和`location`的位置字典。`load()`负责逐条收集这些结果、补上文件来源，再生成文本单元；打印只是调用者观察结果的一种方式。
+
+`@staticmethod`表示这个方法不需要读取实例字段，因此没有`self`参数。加密文件和没有提取出文字的页面会明确报错，避免程序把缺失内容当成正常政策继续入库。空白页和扫描页都可能触发空文本检查，仍需对照原件判断；有少量页脚文字的扫描页也可能通过这个检查，所以非空不等于完整。
 
 第1页的关键内容应当是会员15日、普通订单7日，第2页则要保留“不支持”这个否定条件和退款到账说明。先对照文件核对这些内容，再继续。
 
@@ -103,7 +112,7 @@ with pymupdf.open("refund-policy.pdf") as document:
 
 配套程序把这种记录命名为`DocumentUnit`。名字可以晚些记，先抓住结果：**读文件之后，我们得到带来源位置的文字，而不是已经生成的答案。**
 
-在完整项目环境中，加载器的调用与检查可以写成下面这样。它与前面的逐页读取实验是两种观察入口，不必把两个片段拼成一个加载器：
+要观察上面这个方法的实际结果，在配套目录调用已有的加载器即可。下面是调用示例，直接使用仓库代码，不需要重新抄写`_pdf()`：
 
 ```python
 from loader import DocumentLoader
@@ -177,7 +186,7 @@ print({key: report[key] for key in ("units", "chunks", "total")})
 
 **正文、向量和来源怎样一起写进库？**假设本次得到两个块，程序准备四个对应列表：两个编号、两段正文、两个向量、两份元数据。四组数据相同位置必须属于同一个块。
 
-下面摘出实际写入调用，`start:end`表示当前批次的范围：
+下面摘自[`rag.py`中的`Pipeline.ingest()`](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/rag.py)，`start:end`表示当前批次的范围。它依赖该方法前面准备好的四个列表，不是独立脚本：
 
 ```python
 self.collection.upsert(
@@ -192,7 +201,7 @@ self.collection.upsert(
 
 本例自己计算并传入向量，因此集合关闭默认嵌入函数，避免查询时悄悄换成另一个编码器。向量库负责保存与检索，具体使用哪个模型由程序明确决定。
 
-编码函数也值得看一眼。下面是`Embedder.encode()`中的实际处理，依赖对象保存的Tokenizer、模型和长度上限：
+编码函数也值得看一眼。下面摘自[`rag.py`中的`Embedder.encode()`](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/rag.py)，依赖对象保存的Tokenizer、模型和长度上限：
 
 这三个字段在创建编码器时就已准备好：`self.model`是加载的嵌入模型，`self.tokenizer`负责计数，`self.limit`读取该模型的输入上限。下面的`self.model`与前面生成自然语言回答的聊天模型不是同一个对象。
 
@@ -227,7 +236,7 @@ def encode(self, texts):
 
 例如，我们希望看见两类内容：第1页的会员期限，以及第2页的定制商品例外。只找到“15日”，没有检查适用对象和例外，依据仍然不完整。
 
-配套程序中，这一步是：
+在配套程序外观察检索结果时，可以这样调用已有的`Pipeline.retrieve()`：
 
 ```python
 question = "会员买的非定制商品，签收10天后还能申请退货吗？"
@@ -325,7 +334,7 @@ user：reference_material（本次实际选入的正文）
 
 把资料放进JSON、加分隔符或写明“这是外部数据”，都有助于表达边界，但不能构成安全保证。外部文件里出现“忽略规则”的命令，仍然只能当作资料内容，不能改变工具权限或用户授权。
 
-把检索、选择资料和生成连接起来的实际函数很短：
+把检索、选择资料和生成连接起来的是[`rag.py`中的`ask()`](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/rag.py)。下面是该函数的实际实现：
 
 ```python
 def ask(pipeline, question, top_k=5, threshold=-1.0, budget=6000, generator=generate):
