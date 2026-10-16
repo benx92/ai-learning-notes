@@ -19,7 +19,7 @@ python -m venv .venv
 
 ```powershell
 $env:DEEPSEEK_API_KEY = "替换为你自己的密钥"
-$env:DEEPSEEK_MODEL = "deepseek-flash"
+$env:DEEPSEEK_MODEL = "填写账户可用且支持工具调用的模型名"
 .\.venv\Scripts\python.exe tool_demo.py --live "查一下订单A1001的退款状态"
 ```
 

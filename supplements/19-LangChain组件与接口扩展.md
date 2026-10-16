@@ -208,6 +208,8 @@ py -3.12 -m venv .venv
 
 把下面完整代码保存为 `components_demo.py`：
 
+<!-- example-source: examples/19-langchain/components_demo.py -->
+
 ```python
 import json
 import re
@@ -328,6 +330,8 @@ ToolMessage call_demo_1 {"ok": true, "order_id": "A1001", "status": "审核中"}
 这张表也解释了为什么“少写了循环代码”不等于“少写了业务检查”。框架知道怎样转交一次工具请求，工具才知道当前用户能否读取这笔订单。
 
 下面用相同的查询工具，说明这些配置怎样落到代码。将完整内容保存为与 `components_demo.py`同目录的 `agent_demo.py`：
+
+<!-- example-source: examples/19-langchain/agent_demo.py -->
 
 ```python
 import os

@@ -8,7 +8,7 @@
 
 > **配套代码说明：**本章与文档问答实战共用 [GitHub配套代码](https://github.com/benx92/ai-learning-notes/tree/main/examples/13-rag)，基础解析实现见 [`loader.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/loader.py)。建议结合正文对照查看，依赖安装方法见示例目录中的README。
 
-正文还会展示标题继承、备注提取等独立改进实验。这些片段需要接到加载器后才会改变知识库，仓库现有加载器的实际范围会在对应位置说明。
+基础解析仍使用 `examples/13-rag/loader.py`。本章的正文选择、OCR开关、标题继承、备注和指定表头实验，另存于 [examples/14-parsing](https://github.com/benx92/ai-learning-notes/blob/main/examples/14-parsing/README.md)，正文代码与这些实验文件对应。运行实验只打印解析结果；接入加载器并重新入库以后，知识库才会使用改进后的正文。
 
 | 文件 | 本章使用的工具 | 先观察什么 |
 | --- | --- | --- |
@@ -18,6 +18,17 @@
 | PPT `.pptx` | python-pptx | 条件有没有藏在备注、图片或图表里 |
 | Excel `.xlsx` | openpyxl | 数字对应什么表头、单位和计算状态 |
 | CSV、JSON、JSONL、XML | Python标准库中的相应解析器 | 一条记录在哪里结束，字段属于谁 |
+
+对照源码时，先区分现有分支与本章实验：
+
+| 格式 | 现有 `loader.py` 方法 | 本章另行演示的改进 |
+| --- | --- | --- |
+| HTML | `_html()`读取本地全文并去除脚本与样式 | `html_demo.py`选择已确认的正文区域 |
+| PDF | `_pdf()`逐页取文字，检查加密和空文本 | `pdf_demo.py`显式选择OCR，需额外环境 |
+| Word | `_docx()`按顺序读取正文块和表格行 | `word_demo.py`继承规范标题，把表头配入数据行 |
+| PPT | `_pptx()`读取文本框、表格和组合形状 | `ppt_demo.py`额外观察已有备注 |
+| Excel | `_xlsx()`把首个非空行当表头 | `excel_demo.py`指定工作表与表头行 |
+| CSV、JSON、JSONL | `_csv()`、`_json()`、`_jsonl()`做基础读取 | `records_demo.py`按教学字段观察记录；XML尚未接入加载器 |
 
 这些是不同文件的处理分支，不是每份资料都要依次经过的五个步骤。它们最终要交给知识库的东西相同：**读得懂的正文，以及能找到原件的位置。**
 
@@ -46,6 +57,8 @@
 由此可以区分三个检查：字有没有读全，字之间的关系有没有保住，能不能回到原件。少一个“不”是文字错误，把普通订单配到15日是关系错误，不知道来自哪个版本则是来源问题。
 
 加载器可以继续使用`text`和`metadata`两部分记录。前者放可阅读正文，后者放文件名、页码、工作表等追踪信息。例如：
+
+<!-- example-kind: illustration -->
 
 ```json
 {
@@ -95,22 +108,25 @@ flowchart TD
 
 网页使用HTML标签组织内容。`article`常表示独立文章，`main`表示主要区域，`nav`通常是导航。解析时可以利用这些结构先找到正文，再清理脚本和样式。
 
-下面的小实验使用已拿到的HTML，不访问网站，也不运行网页脚本：
+下面摘自独立实验 [`html_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/14-parsing/html_demo.py)，使用已拿到的HTML，不访问网站，也不运行网页脚本：
+
+<!-- example-source: examples/14-parsing/html_demo.py -->
 
 ```python
 from bs4 import BeautifulSoup
 
-html = """<nav>旧活动：30天退换</nav>
-<article><h1>会员订单退货</h1>
-<p>会员订单签收后15日内可以申请退货。</p></article>"""
 
-soup = BeautifulSoup(html, "html.parser")
-body = soup.select_one("article")
-if body is None:
-    raise ValueError("没有找到正文，请检查页面结构")
-for tag in body.select("script, style, noscript"):
-    tag.decompose()
-print(body.get_text(separator="\n", strip=True))
+if __name__ == "__main__":
+    html = """<nav>旧活动：30天退换</nav>
+    <article><h1>会员订单退货</h1>
+    <p>会员订单签收后15日内可以申请退货。</p></article>"""
+    soup = BeautifulSoup(html, "html.parser")
+    body = soup.select_one("article")
+    if body is None:
+        raise ValueError("没有找到正文，请检查页面结构")
+    for tag in body.select("script, style, noscript"):
+        tag.decompose()
+    print(body.get_text(separator="\n", strip=True))
 ```
 
 这里Beautiful Soup负责解析HTML，`select_one()`选定区域，`get_text()`提取区域里的文字。结果只应包含会员标题和15日条款，旧活动被留在外面。[Beautiful Soup文档](https://www.crummy.com/software/BeautifulSoup/bs4/doc/)
@@ -153,7 +169,9 @@ PDF中可直接读取的字符，通常称为文字层。原生PDF可能有文�
 
 PyMuPDF可以提取文字，也提供配合Tesseract的OCR接口；OCR另需安装识别引擎和语言数据。配套基础加载器只做原生文字提取，没有自动启用OCR。
 
-下面是明确选择普通提取或OCR的函数，不根据“有几个字”就自动决定：
+下面是 [`pdf_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/14-parsing/pdf_demo.py) 中的 `read_pdf_page()`，明确选择普通提取或OCR，不根据“有几个字”就自动决定：
+
+<!-- example-source: examples/14-parsing/pdf_demo.py -->
 
 ```python
 def read_pdf_page(page, use_ocr=False):
@@ -168,6 +186,8 @@ def read_pdf_page(page, use_ocr=False):
 调用前先用`pymupdf.open()`取得文档，再传入其中一页。`use_ocr=False`直接读文字层；`True`先识别整页图像，得到识别后的文字对象，再提取文字。`chi_sim+eng`表示使用简体中文和英语识别数据，`dpi=300`是此示例的识别分辨率设置，不保证所有扫描件都适用。
 
 把下面的调用接在函数定义之后，就能先观察配套PDF的普通提取结果。它沿用文档问答示例的依赖环境，并要求当前目录有`refund-policy.pdf`：
+
+<!-- example-kind: usage -->
 
 ```python
 import pymupdf
@@ -211,7 +231,9 @@ Word里的规则经常这样出现：标题写“会员订单”，下面一段�
 
 Word中的页数还会随字体、纸张和排版变化。基础解析通常保留正文块、标题或表格行，不应伪造一个固定页码。页眉页脚、修订内容和图片文字也需要按实际文件检查是否覆盖。
 
-**把标题继承落实到代码。**先准备一份`policy.docx`：使用Word的“标题1”写“售后政策”，“标题2”写“会员订单”，再写期限段落；另设同级标题“普通订单”及对应段落。下面的独立函数针对规范标题样式和简单表格，不依赖聊天模型：
+**把标题继承落实到代码。**先准备一份`policy.docx`：使用Word的“标题1”写“售后政策”，“标题2”写“会员订单”，再写期限段落；另设同级标题“普通订单”及对应段落。下面摘自 [`word_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/14-parsing/word_demo.py)，针对规范标题样式和简单表格，不依赖聊天模型：
+
+<!-- example-source: examples/14-parsing/word_demo.py -->
 
 ```python
 import re
@@ -255,8 +277,9 @@ def read_word_units(path):
                                 "title_path": title, **position}}
 
 
-for unit in read_word_units("policy.docx"):
-    print(unit)
+if __name__ == "__main__":
+    for unit in read_word_units("policy.docx"):
+        print(unit)
 ```
 
 这里维护的是“当前走到哪个标题下面”。遇到同级标题，就替换旧标题；从较深标题返回上层时，清除离开的下级标题。例如“售后政策 > 会员订单”后遇到同级“普通订单”，下一段就应带“售后政策 > 普通订单”，不能继续沿用会员身份。
@@ -275,7 +298,9 @@ for unit in read_word_units("policy.docx"):
 
 解析PPT时，先以幻灯片为单位收集文本框、表格和组合形状，再检查备注。基础加载器已经读取前三类文字，尚未读取演讲者备注；下面先单独观察备注，其他格式实现可对照[格式解析扩展](supplements/14-格式解析扩展.md)。[python-pptx接口说明](https://python-pptx.readthedocs.io/en/latest/user/quickstart.html)
 
-先把“画面文字”这部分展开。幻灯片上不只有一种对象，所以代码分别检查文本框、表格和组合形状；组合形状内部还要继续遍历：
+先把“画面文字”这部分展开。幻灯片上不只有一种对象，所以代码分别检查文本框、表格和组合形状；组合形状内部还要继续遍历。下面的两个函数和调用均摘自 [`ppt_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/14-parsing/ppt_demo.py)：
+
+<!-- example-source: examples/14-parsing/ppt_demo.py -->
 
 ```python
 def read_slide_texts(shapes):
@@ -293,6 +318,8 @@ def read_slide_texts(shapes):
 
 备注读取本身并不复杂，但要防止把空白备注页当作有效信息。下面只取得已有备注，输入`slide`是python-pptx读取出的幻灯片对象：
 
+<!-- example-source: examples/14-parsing/ppt_demo.py -->
+
 ```python
 def read_slide_notes(slide):
     if not slide.has_notes_slide:
@@ -302,6 +329,8 @@ def read_slide_notes(slide):
 ```
 
 函数定义本身不会打开PPT。准备一份自己的`policy.pptx`，将两个函数和下面的调用放在同一脚本，逐张对照画面文字与备注：
+
+<!-- example-kind: usage -->
 
 ```python
 from pptx import Presentation
@@ -329,7 +358,9 @@ for number, slide in enumerate(Presentation("policy.pptx").slides, 1):
 
 openpyxl能取得工作表和单元格，但它不知道哪个区域业务上才是表头。实际文件可能前两行是公司名和说明，第三行才开始字段。基础加载器假定首个非空行是表头，复杂文件需要自己指定真实范围。
 
-**先把简单表格真正转成记录。**准备一份`policy.xlsx`，工作表叫“退货规定”，第1行使用上面的三个字段，第2、3行放会员与普通订单。下面显式指定表头行，不让程序把公司名误当字段：
+**先把简单表格真正转成记录。**准备一份`policy.xlsx`，工作表叫“退货规定”，第1行使用上面的三个字段，第2、3行放会员与普通订单。下面摘自 [`excel_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/14-parsing/excel_demo.py)，显式指定表头行，不让程序把公司名误当字段：
+
+<!-- example-source: examples/14-parsing/excel_demo.py -->
 
 ```python
 from pathlib import Path
@@ -363,8 +394,9 @@ def read_excel_units(path, sheet_name, header_row=1):
         workbook.close()
 
 
-for unit in read_excel_units("policy.xlsx", "退货规定", header_row=1):
-    print(unit)
+if __name__ == "__main__":
+    for unit in read_excel_units("policy.xlsx", "退货规定", header_row=1):
+        print(unit)
 ```
 
 会员那行的正文应包含“客户类型=会员订单；申请期限=15；单位=日”，元数据中的行号是2。把表头改在第3行时，调用也要改成`header_row=3`。字段与值在每条记录里重新配对，后面即使只检索到一行，也知道15表示什么。
@@ -381,17 +413,21 @@ for unit in read_excel_units("policy.xlsx", "退货规定", header_row=1):
 
 这意味着：读到`None`可能是没有缓存，不等于零；读到数值也可能是旧缓存，不保证与当前输入一致。应让支持计算的电子表格软件重新计算并保存，或者用明确的业务程序重算，再标记结果来源。
 
-需要排查公式时，可以对同一工作簿分别读取公式与缓存：
+需要排查公式时，可以运行 [`formula_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/14-parsing/formula_demo.py)，对同一工作簿分别读取公式与缓存：
+
+<!-- example-source: examples/14-parsing/formula_demo.py -->
 
 ```python
 from openpyxl import load_workbook
 
-formulas = load_workbook("policy.xlsx", data_only=False)
-cached = load_workbook("policy.xlsx", data_only=True)
-print("公式或原值：", formulas["退货规定"]["B2"].value)
-print("已保存的计算值：", cached["退货规定"]["B2"].value)
-formulas.close()
-cached.close()
+
+if __name__ == "__main__":
+    formulas = load_workbook("policy.xlsx", data_only=False)
+    cached = load_workbook("policy.xlsx", data_only=True)
+    print("公式或原值：", formulas["退货规定"]["B2"].value)
+    print("已保存的计算值：", cached["退货规定"]["B2"].value)
+    formulas.close()
+    cached.close()
 ```
 
 这里假定文件有“退货规定”工作表与B2单元格，实际练习要换成自己的位置。`data_only=True`不是“现在计算”，而是读取文件已有的缓存结果。没有缓存时，应该记录“结果暂不可用”，不能用`value or 0`把缺失数据改成零。
@@ -413,7 +449,9 @@ cached.close()
 | JSONL | 每行记录及物理行号 | 跳过空行后，把记录序号误当文件行号 |
 | XML | 标签、属性及父子层级 | 去掉标签后，客户类别与期限无法对应 |
 
-下面用小字符串观察几种解析结果，不需要额外文件。JSON与XML都假定了明确的教学结构，换数据源时要按实际字段调整：
+下面摘自 [`records_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/14-parsing/records_demo.py)，用小字符串观察几种解析结果，不需要额外文件。JSON与XML都假定了明确的教学结构，换数据源时要按实际字段调整：
+
+<!-- example-source: examples/14-parsing/records_demo.py -->
 
 ```python
 import csv
@@ -421,23 +459,22 @@ import io
 import json
 import xml.etree.ElementTree as ET
 
-csv_text = '客户类型,说明\n会员,"签收后15日内,定制商品除外"\n'
-for record in csv.DictReader(io.StringIO(csv_text, newline="")):
-    print("CSV：", record)
 
-json_text = '{"policies":[{"customer":"会员","return_days":15}]}'
-for record in json.loads(json_text)["policies"]:
-    print("JSON：", record)
-
-jsonl_text = '{"customer":"会员","return_days":15}\n\n{"customer":"普通订单","return_days":7}'
-for line_number, line in enumerate(jsonl_text.splitlines(), 1):
-    if line.strip():
-        print("JSONL行号：", line_number, json.loads(line))
-
-xml_text = '<policies><policy customer="会员"><return_days>15</return_days></policy></policies>'
-for element in ET.fromstring(xml_text).findall("policy"):
-    print("XML：", {"customer": element.get("customer"),
-                   "return_days": element.findtext("return_days")})
+if __name__ == "__main__":
+    csv_text = '客户类型,说明\n会员,"签收后15日内,定制商品除外"\n'
+    for record in csv.DictReader(io.StringIO(csv_text, newline="")):
+        print("CSV：", record)
+    json_text = '{"policies":[{"customer":"会员","return_days":15}]}'
+    for record in json.loads(json_text)["policies"]:
+        print("JSON：", record)
+    jsonl_text = '{"customer":"会员","return_days":15}\n\n{"customer":"普通订单","return_days":7}'
+    for line_number, line in enumerate(jsonl_text.splitlines(), 1):
+        if line.strip():
+            print("JSONL行号：", line_number, json.loads(line))
+    xml_text = '<policies><policy customer="会员"><return_days>15</return_days></policy></policies>'
+    for element in ET.fromstring(xml_text).findall("policy"):
+        print("XML：", {"customer": element.get("customer"),
+                       "return_days": element.findtext("return_days")})
 ```
 
 CSV中的逗号留在“说明”字段里，没有被拆成第三列；JSONL会打印行号1和3，空行仍占一个物理位置。XML示例把属性中的客户类别与子标签中的期限重新放在同一条记录中，不能只取所有标签内部的文字再拼接。
@@ -473,6 +510,8 @@ flowchart TD
 新格式需要同时补上解析方法和扩展名映射；只把`.xml`写进支持列表，Python并不会自动知道怎样读取业务字段。路径不存在、格式不支持、编码不匹配、正文为空，也应保留明确错误，不能统一返回空字符串掩盖原因。基础文本读取要求UTF-8；编码不符时先确认并转换，不能靠忽略错误静默丢字。
 
 **以Word标题继承为例，接回同一个接口。**若要使用上面的`read_word_units()`，先把它的导入与函数定义放到`loader.py`的`DocumentLoader`类之前，不复制末尾的练习打印循环；再将类中的`_docx()`替换为下面的方法：
+
+<!-- example-kind: adaptation -->
 
 ```python
 @staticmethod

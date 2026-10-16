@@ -19,7 +19,7 @@
 在当前目录打开PowerShell：
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe client.py
 .\.venv\Scripts\python.exe bridge_demo.py

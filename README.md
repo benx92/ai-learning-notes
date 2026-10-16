@@ -10,8 +10,8 @@
 
 ## 内容结构
 
-- `01-*.md` 到 `24-*.md`：按照当前学习和写作顺序完成的正文文章
-- [examples](examples/)：文章配套代码、样例文件、依赖与运行说明
+- `01-*.md` 到 `19-*.md`：已写正文；`20-*.md` 到 `24-*.md`：待写提纲
+- [examples](examples/README.md)：文章与源码对照、样例文件、依赖与运行说明
 - [supplements](supplements/README.md)：部分章节的实现细节与扩展阅读
 
 ## 系列结构

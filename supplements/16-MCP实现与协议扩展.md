@@ -162,6 +162,8 @@ flowchart LR
 
 MCP用一种叫JSON-RPC的消息约定，说明调用什么方法、带哪些参数，并用ID对上结果。比如一条工具调用在协议中可以写成：
 
+<!-- example-kind: illustration -->
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -202,7 +204,7 @@ examples/16-mcp/
 如果只想先验证最基本的连接，准备 `server.py`、`client.py` 和 `requirements.txt`，运行一次 `client.py` 即可。看懂输出后，再尝试HTTP和桥接示例；测试文件用于检查实现，不是阅读正文的前置要求。
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
@@ -216,6 +218,8 @@ pydantic-settings==2.12.0
 这里使用的是官方 `mcp` 包中包含的FastMCP，不需要另装一个名叫 `fastmcp` 的包。`pydantic-settings`是SDK的配置依赖，本例固定它的版本，不需要自己调用它。
 
 **把下面完整代码保存为 `server.py`。**
+
+<!-- example-source: examples/16-mcp/server.py -->
 
 ```python
 """本地售后 MCP 教学服务：提供虚构查询、政策资料和回复模板。"""
@@ -309,6 +313,8 @@ if __name__ == "__main__":
 有一个容易踩的坑：服务端的标准输出是协议通道，不要往里面随便 `print("启动成功")`。日志写到标准错误通道；客户端打印检查结果则没问题，因为那是客户端自己的输出。[对应版本的传输说明](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
 
 **保存下面完整代码为 `client.py`。**
+
+<!-- example-source: examples/16-mcp/client.py -->
 
 ```python
 """不调用模型，直接检查 MCP 服务的工具、资源和提示模板。"""
@@ -441,6 +447,8 @@ bad-id：工具执行出错
 
 保持这个终端运行，再在同一个目录打开终端二。保存下面代码为 `http_client.py`：
 
+<!-- example-source: examples/16-mcp/http_client.py -->
+
 ```python
 """连接已经启动的本机 HTTP 服务，重复同一组 MCP 检查。"""
 
@@ -510,6 +518,8 @@ MCP服务返回结果 → 应用把结果交回模型
 ```
 
 **把下面代码保存为 `bridge_demo.py`，检查这段连接。**
+
+<!-- example-source: examples/16-mcp/bridge_demo.py -->
 
 ```python
 """把 MCP 工具说明转成聊天接口格式；用固定请求检查结果回填，不调用模型。"""

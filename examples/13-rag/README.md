@@ -108,3 +108,5 @@ Sentence Transformers 5.1.2 的[官方依赖声明](https://github.com/huggingfa
 此外，已用真实多语言 MiniLM、PyTorch 2.6 CPU 与 Chroma 完成 PDF 入库和四道问题的检索，原始解析文本、分数、位置、上下文和选入证据见 `verification-retrieval.json`。运费问题没有依据却仍命中相关页面，默认阈值不能可靠拒答。
 
 没有调用付费生成接口；文章中的预期回答是核验标准。只有两块语料的实测也不能证明多文档召回、复杂解析或生成质量已经达标。
+
+仓库中的 `13-rag-example.zip` 包含第13章正文、`supplements/13-实现细节与运行排查.md`以及本目录文件。下载包与仓库的同步维护方法见[示例总览](https://github.com/benx92/ai-learning-notes/blob/main/examples/README.md)。

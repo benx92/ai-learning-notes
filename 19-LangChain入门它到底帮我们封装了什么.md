@@ -22,6 +22,8 @@ LangChain主要帮助组织这类工作。它是可以安装到Python项目中�
 
 这次只解释明确提供的条款，不判断某笔实际订单资格。用普通Python准备消息，可以这样写：
 
+<!-- example-kind: usage -->
+
 ```python
 policy = "会员订单签收后15日内可以申请退货。"
 question = "会员订单的申请期限是多少？"
@@ -46,30 +48,45 @@ print(messages[1]["content"])
 
 ## 第一个变化：把重复的提示写成模板
 
-用户接着问“普通订单的申请期限是多少”，我们换一条政策和一个问题，但“资料：……问题：……”的组织方式不变。
+换成“普通订单的申请期限是多少”时，可以换一条政策和一个问题，而“资料：……问题：……”的组织方式不变。
 
 当这种格式要在多处复用时，可以把固定部分保存，把每次变化的政策与问题留成空位。这就是提示模板。
 
-LangChain中的`ChatPromptTemplate`用来准备聊天消息。下面是完整的独立模板实验，需要先安装`langchain-core`：
+LangChain中的`ChatPromptTemplate`用来准备聊天消息。下面直接摘录 [`reading_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/reading_demo.py) 的 `prepare_messages()`，它把普通消息与模板消息一起返回，便于对照；`ChatPromptTemplate`在同文件前面导入：
+
+<!-- example-source: examples/19-langchain/reading_demo.py -->
 
 ```python
-from langchain_core.prompts import ChatPromptTemplate
+def prepare_messages(policy, question):
+    instruction = "解释提供的条款，不推断具体订单的退货资格。"
+    plain = [
+        {"role": "system", "content": instruction},
+        {"role": "user", "content": f"资料：{policy}\n问题：{question}"},
+    ]
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", instruction),
+        ("human", "资料：{policy}\n问题：{question}"),
+    ])
+    prepared = prompt.invoke({"policy": policy, "question": question})
+    return plain, prepared.to_messages()
+```
 
-prompt = ChatPromptTemplate.from_messages([
-    ("system", "解释提供的条款，不推断具体订单的退货资格。"),
-    ("human", "资料：{policy}\n问题：{question}"),
-])
+`from_messages()`定义模板；`{policy}`和`{question}`是变量位置。`prompt.invoke()`填入这次的数据，`to_messages()`把准备结果转换成消息列表。函数返回普通字典列表 `plain` 和模板生成的消息列表。
 
-prepared = prompt.invoke({
-    "policy": "会员订单签收后15日内可以申请退货。",
-    "question": "会员订单的申请期限是多少？",
-})
-messages = prepared.to_messages()
+直接使用仓库里的函数观察结果，在配套目录运行：
+
+<!-- example-kind: usage -->
+
+```python
+from reading_demo import prepare_messages
+
+plain, messages = prepare_messages(
+    "会员订单签收后15日内可以申请退货。",
+    "会员订单的申请期限是多少？",
+)
 for message in messages:
     print(type(message).__name__, message.content)
 ```
-
-`from_messages()`定义模板；`{policy}`和`{question}`是变量位置。`prompt.invoke()`填入这次的数据，`to_messages()`把准备结果转换成消息列表。
 
 打印时会看到`SystemMessage`和`HumanMessage`，分别对应系统要求与用户输入。内容仍然是刚才那条政策和问题。
 
@@ -81,10 +98,9 @@ for message in messages:
 
 模板准备好了，接下来要先配置模型对象，再用它请求生成。以DeepSeek集成为例，配套在线脚本使用下面的配置。它依赖已安装的`langchain-deepseek`，并要求当前进程环境提供自己的凭证和可用模型名；安装与环境变量命令集中放在后面的运行部分。
 
-```python
-import os
-from langchain_deepseek import ChatDeepSeek
+<!-- example-source: examples/19-langchain/agent_demo.py -->
 
+```python
 model = ChatDeepSeek(
     model=os.environ["LC_CHAT_MODEL"],
     timeout=45,
@@ -93,11 +109,13 @@ model = ChatDeepSeek(
 )
 ```
 
-`ChatDeepSeek`会读取对应的`DEEPSEEK_API_KEY`环境变量。`model`参数指定实际服务模型，不是给Python对象随便起的名字；`LC_CHAT_MODEL`则是我们这个示例约定的配置变量。
+`os`与 `ChatDeepSeek`在 `agent_demo.py` 的文件开头导入。`ChatDeepSeek`会读取对应的`DEEPSEEK_API_KEY`环境变量。`model`参数指定实际服务模型，不是给Python对象随便起的名字；`LC_CHAT_MODEL`则是我们这个示例约定的配置变量。
 
 `timeout=45`约束单次请求等待，`max_retries=0`关闭这一层自动重试，让教学过程更容易观察。`extra_body`传入本例供应商支持的非思考模式设置；这是供应商配置，不是所有模型通用参数。换服务时，要核对集成和能力，不能原样照搬。
 
 创建对象成功主要说明配置与对象构造能成立，不证明凭证有效，也不证明线上模型会按要求回答。把上节准备的`messages`交给它，才走到实际生成步骤：
+
+<!-- example-kind: usage -->
 
 ```python
 # 调用片段：model是已配置好的聊天模型，messages来自上面的模板。
@@ -152,18 +170,29 @@ flowchart TD
 
 普通Python函数可以查订单。LangChain中的`@tool`在它外面整理名称、说明和参数结构，形成能登记给模型或Agent的工具对象。
 
-例如配套`components_demo.py`已经定义了：
+下面直接摘录配套 [`components_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/components_demo.py) 的工具函数。`json`、`re`、`tool`和两份 `DEMO_*` 教学配置已在同文件中准备好：
+
+<!-- example-source: examples/19-langchain/components_demo.py -->
 
 ```python
 @tool
 def get_refund_status(order_id: str) -> str:
     """查询教学订单的退款状态，不能提交或批准申请。订单号须由用户提供。"""
-    # 完整文件在这里检查格式与归属，再返回JSON字符串。
+    if not re.fullmatch(r"A[0-9]{4}", order_id):
+        raise ValueError("订单号格式应为A加4位数字")
+    order = DEMO_ORDERS.get(order_id)
+    if order is None or order["owner"] != DEMO_USER:
+        result = {"ok": False, "error": "not_found_or_forbidden"}
+    else:
+        result = {"ok": True, "order_id": order_id, "status": order["status"]}
+    return json.dumps(result, ensure_ascii=False)
 ```
 
-上面只展示声明，不是可用函数实现。真正的格式校验、订单归属和结果生成都在[完整函数](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/components_demo.py)中。`str`说明参数类型，函数说明帮助选择，`@tool`把这些信息整理成参数要求。
+这里已经保留格式校验、订单归属和结果生成；函数依赖同文件的导入与教学记录，运行时仍使用完整文件。`str`说明参数类型，函数说明帮助选择，`@tool`把这些信息整理成参数要求。
 
 我们先手动调用，不让模型选择：
+
+<!-- example-kind: usage -->
 
 ```python
 from components_demo import get_refund_status
@@ -192,6 +221,8 @@ print(result)
 
 例如模型请求可以整理为下面的结构示意：
 
+<!-- example-kind: usage -->
+
 ```python
 {
     "name": "get_refund_status",
@@ -215,23 +246,37 @@ print(result)
 
 LangChain的`create_agent`把这组往返组织成一个入口。我们提供模型、工具和系统要求，它负责运行模型与工具之间的循环。[Agent机制说明](https://docs.langchain.com/oss/python/langchain/agents)
 
-下面是配置片段，`model`需先按配套脚本创建：
+下面直接摘录 [`agent_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/agent_demo.py) 的 `build_agent(model)`。同文件已经导入 `create_agent`、两个限额中间件和 `get_refund_status`；传入的 `model` 使用前面展示的配置：
+
+<!-- example-source: examples/19-langchain/agent_demo.py -->
 
 ```python
-from langchain.agents import create_agent
-from components_demo import get_refund_status
-
-agent = create_agent(
-    model=model,
-    tools=[get_refund_status],
-    system_prompt="查询具体订单状态必须使用工具。订单号缺失时询问，不得猜测。",
-)
-result = agent.invoke({
-    "messages": [{"role": "user", "content": "查一下A1001的退款状态。"}]
-})
+def build_agent(model):
+    return create_agent(
+        model=model,
+        tools=[get_refund_status],
+        system_prompt=(
+            "你是教学售后助手。查询具体订单状态必须使用工具，不得猜测。"
+            "订单号缺失时询问用户。查不到时如实说明。"
+            "结果是虚构教学数据，不代表真实订单。你不能提交或批准申请。"
+        ),
+        middleware=[
+            ModelCallLimitMiddleware(run_limit=3, exit_behavior="error"),
+            ToolCallLimitMiddleware(run_limit=2, exit_behavior="error"),
+        ],
+    )
 ```
 
-创建Agent时主要是在配置执行结构，没有马上查询订单。调用`agent.invoke()`后，才开始一次运行。
+`build_agent()`返回配置好的Agent，没有马上查询订单。`main()`中再执行下面这段实际调用，才开始一次运行：
+
+<!-- example-source: examples/19-langchain/agent_demo.py -->
+
+```python
+agent = build_agent(model)
+result = agent.invoke({
+    "messages": [{"role": "user", "content": "查一下A1001的退款状态。"}],
+})
+```
 
 对于这条查询，成功路径应当留下四条消息：
 
@@ -265,7 +310,7 @@ flowchart TD
 
 这也是框架与普通组件库的一个区别：调用模板时，程序自己决定下一步；运行Agent时，我们把一部分执行顺序交给框架，它按配置组织模型与工具。封装越多，越需要看得见中间消息与限制。
 
-完整[`agent_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/agent_demo.py)还设置最多3次模型调用、2次工具执行，使用单次45秒超时并关闭模型客户端自动重试。这里只摘出核心配置帮助理解；实际运行使用完整文件，避免漏掉限制与错误处理。
+完整[`agent_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/agent_demo.py)还设置最多3次模型调用、2次工具执行，使用单次45秒超时并关闭模型客户端自动重试。上面的 `build_agent()`已保留两项限额；模型对象中的超时和重试配置见前文，实际运行使用完整文件。
 
 达到限制时，本例选择抛出错误，停止继续执行。面向用户的应用要接住相应错误，说明已有结果和未完成部分。超时、调用次数和业务完成状态分别控制不同事情，不能用一个“最大轮数”代替全部设计。
 
@@ -276,6 +321,8 @@ flowchart TD
 **政策还没读出来时，需要文档处理。**加载器读取PDF等文件，产生正文和来源。LangChain的`Document`通常用`page_content`保存正文，用`metadata`保存来源；创建这个对象只是包装已有文字，不会自动解析PDF。
 
 用代码表示已经取得的文字，可以是：
+
+<!-- example-kind: usage -->
 
 ```python
 from langchain_core.documents import Document

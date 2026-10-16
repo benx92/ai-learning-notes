@@ -72,17 +72,19 @@ flowchart LR
   → 服务器返回教学退款状态
 ```
 
-在Python SDK中，对应的关键调用是：
+在配套 [`client.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/16-mcp/client.py) 的 `inspect_server(session)` 中，初始化与发现工具的实际代码是：
+
+<!-- example-source: examples/16-mcp/client.py -->
 
 ```python
-await session.initialize()
+info = await session.initialize()
+print("协议版本：", info.protocolVersion)
 tools = await session.list_tools()
-result = await session.call_tool(
-    "get_refund_status", arguments={"order_id": "A1001"}
-)
+print("工具：", [tool.name for tool in tools.tools])
+print("参数要求：", tools.tools[0].inputSchema)
 ```
 
-这是已建立`session`之后的摘录，不是独立脚本。`session`表示当前连接中的会话，`await`表示等待异步操作完成；它不会自动把三个有先后依赖的步骤变成并行。
+这是已建立`session`之后的摘录，不是独立脚本。稍后同一函数遍历订单号，并调用 `await session.call_tool("get_refund_status", arguments={"order_id": order_id})` 取得结果。`session`表示当前连接中的会话，`await`表示等待异步操作完成；它不会自动把三个有先后依赖的步骤变成并行。
 
 初始化是一次明确的握手，不只是建立了进程或TCP连接。客户端发出支持的协议版本与自身信息，服务器回应协商结果及能力，客户端再通知“初始化完成”，之后进入正常发现和调用。
 
@@ -115,38 +117,30 @@ SDK负责包装协议消息，我们先关注输入与结果即可。底层使�
 
 注册仍然只是在公布能力。查询A1001的实际逻辑、当前用户归属检查和错误处理，还在服务自己的函数中。[官方Python SDK](https://github.com/modelcontextprotocol/python-sdk)
 
-下面是一个可以单独保存为Python脚本的最小stdio服务，只有查询工具，帮助看清注册与执行。它仍然只使用虚构数据和固定教学身份：
+下面直接摘录 [`server.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/16-mcp/server.py) 的 `get_refund_status()`。文件前面已经导入 `json`、`re`，创建 `mcp` 并定义 `ORDERS`；这里保留实际业务检查和返回字段，不另写一份查询函数：
+
+<!-- example-source: examples/16-mcp/server.py -->
 
 ```python
-import json
-import re
-from mcp.server.fastmcp import FastMCP
-
-mcp = FastMCP("after-sales-minimal")
-orders = {"A1001": {"owner": "demo-user", "refund_status": "审核中"}}
-
-
 @mcp.tool()
 def get_refund_status(order_id: str) -> str:
-    """按用户提供的订单号查询教学退款状态，只读，不提交申请。"""
+    """按用户提供的订单号查询教学退款状态，只读；不创建申请或执行退款。"""
     if not re.fullmatch(r"A[0-9]{4}", order_id):
-        raise ValueError("订单号应为A加4位数字")
-    order = orders.get(order_id)
+        raise ValueError("订单号应为A加4位数字，如A1001")
+    order = ORDERS.get(order_id)
+    # 固定身份仅用于本机教学，真实服务应从认证信息取得当前用户。
     if order is None or order["owner"] != "demo-user":
         return json.dumps({"ok": False, "error": "not_found_or_forbidden"})
     return json.dumps({"ok": True, "order_id": order_id,
-                       "refund_status": order["refund_status"]}, ensure_ascii=False)
-
-
-if __name__ == "__main__":
-    mcp.run(transport="stdio")
+                       "refund_status": order["refund_status"],
+                       "source": "虚构教学快照，不是实时订单"}, ensure_ascii=False)
 ```
 
-`FastMCP()`创建服务对象，`@mcp.tool()`登记函数，函数参数类型和说明用于形成工具描述。最后的`run()`启动接收请求的服务过程，**并不是启动后就自动执行所有已登记函数**。
+文件中的 `FastMCP("after-sales-demo", host="127.0.0.1", port=8765, json_response=True)` 创建服务对象，`@mcp.tool()`登记函数，函数参数类型和说明用于形成工具描述。文件末尾的 `mcp.run(transport=args.transport)` 启动服务，默认使用stdio，也能按命令行参数切换HTTP。**登记工具和启动服务，都不等于已经执行查询。**
 
-直接运行这个脚本，看不到聊天窗口或主动打印的订单结果是正常的：它正在等待客户端按协议请求。手工在终端输入“查A1001”，也不是有效MCP调用。需要客户端发出对应的初始化和调用消息。
+直接运行 `server.py`，看不到聊天窗口或主动打印的订单结果是正常的：它正在等待客户端按协议请求。手工在终端输入“查A1001”，也不是有效MCP调用。需要客户端发出对应的初始化和调用消息。
 
-后面运行练习仍使用仓库完整的`server.py`与`client.py`，它们还包含资源、提示及更多查询情况。最小服务用于理解注册机制，不替换配套服务的全部能力。
+下面运行的就是这份完整 `server.py` 与配套 `client.py`，同一个服务还注册了政策资源和提示。函数返回的 `refund_status` 是退款状态，`source` 标明数据来自教学快照；后面读取结果时保留这两个字段。
 
 使用[配套代码与环境说明](https://github.com/benx92/ai-learning-notes/tree/main/examples/16-mcp)，在示例目录准备Python3.12环境：
 

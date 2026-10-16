@@ -60,20 +60,28 @@ sequenceDiagram
 
 模型不会因为代码里定义了函数，就自动知道它的存在。发起模型请求时，还要提供工具描述：叫什么，什么时候用，需要哪些参数。
 
-例如，查询工具的参数说明可以写成：
+查询脚本 [`tool_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/15-tool-calling/tool_demo.py) 用 `TOOLS` 保存工具列表，下面是其中唯一一项的实际JSON表示；Python源码中的 `False` 在JSON中写作 `false`：
+
+<!-- example-json: examples/15-tool-calling/tool_demo.py#TOOLS.0 -->
 
 ```json
 {
   "type": "function",
   "function": {
     "name": "get_refund_status",
-    "description": "按用户提供的订单号查询退款状态，不提交申请，不执行退款。",
+    "description": "查询一笔订单的退款处理状态，只读，不提交退款。必须由用户提供订单号；缺少订单号时先询问，不要猜测。",
     "parameters": {
       "type": "object",
       "properties": {
-        "order_id": {"type": "string", "description": "订单号，如A1001"}
+        "order_id": {
+          "type": "string",
+          "description": "用户提供的订单号，教学格式为A加4位数字，如A1001",
+          "pattern": "^A[0-9]{4}$"
+        }
       },
-      "required": ["order_id"],
+      "required": [
+        "order_id"
+      ],
       "additionalProperties": false
     }
   }
@@ -98,6 +106,8 @@ sequenceDiagram
 
 下面是Chat Completions风格的一条调用示意：
 
+<!-- example-kind: illustration -->
+
 ```json
 {
   "id": "call_1",
@@ -120,13 +130,39 @@ sequenceDiagram
 
 只按允许清单选择函数，不把模型返回的名字交给`eval`执行。订单不存在与不属于当前用户，可以统一返回不可访问，避免泄露他人的订单情况。
 
-查到A1001以后，程序把结果包装成工具消息：
+上述检查落实在 `tool_demo.py` 的 `execute_tool()` 中。下面是实际函数，使用同文件导入的 `json`、`re` 和业务查询函数；`current_user` 由应用传入：
+
+<!-- example-source: examples/15-tool-calling/tool_demo.py -->
+
+```python
+def execute_tool(call, current_user):
+    function = call["function"]
+    if function.get("name") != "get_refund_status":
+        return {"ok": False, "error": "unknown_tool"}
+    raw = function.get("arguments")
+    if not isinstance(raw, str):
+        return {"ok": False, "error": "invalid_arguments"}
+    try:
+        args = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"ok": False, "error": "invalid_json"}
+    if not isinstance(args, dict) or set(args) != {"order_id"}:
+        return {"ok": False, "error": "invalid_arguments"}
+    order_id = args["order_id"]
+    if not isinstance(order_id, str) or not re.fullmatch(r"A[0-9]{4}", order_id):
+        return {"ok": False, "error": "invalid_order_id"}
+    return get_refund_status(order_id, current_user)
+```
+
+其中 `get_refund_status()` 核对订单归属，返回 `refund_status` 与教学来源 `source`。查到A1001以后，`run()`把结果包装成工具消息；下面用 `call_1` 示意配对，离线脚本实际构造的ID为 `call_demo_1`：
+
+<!-- example-kind: illustration -->
 
 ```json
 {
   "role": "tool",
   "tool_call_id": "call_1",
-  "content": "{\"ok\":true,\"order_id\":\"A1001\",\"status\":\"审核中\"}"
+  "content": "{\"ok\":true,\"order_id\":\"A1001\",\"refund_status\":\"审核中\",\"source\":\"虚构订单教学快照，不是实时业务数据\"}"
 }
 ```
 
@@ -242,6 +278,8 @@ flowchart TD
 
 `service = ReturnService()`创建本次实验的业务服务对象；`prepare()`、`confirm_from_ui()`和`submit()`会操作这同一份对象里的记录。实验中保持使用同一个`service`，否则新建对象后，上一份草稿不会凭空跟过来。
 
+<!-- example-kind: usage -->
+
 ```python
 from return_demo import ReturnService
 
@@ -295,6 +333,8 @@ True True
 查询任务检查有没有真的查A1001，返回的状态是什么。准备任务检查有没有草稿、订单和原因是否正确、是否停在提交前。提交任务则检查确认记录、申请编号和重复请求行为。
 
 配套业务规则中，A3004是普通订单、签收10天，超过7日期限；A3005是定制商品，不满足当前无理由申请条件。这两个例子检查的不是模型是否会说“不能退”，而是后端能否真正拒绝不符合条件的准备操作。
+
+源码位置可以按这条顺序对照：`TOOLS` 公布参数，`offline_model()`或 `live_model()`产生模型消息，`run()`检查调用结构和预算，`execute_tool()`校验参数，`get_refund_status()`读取订单，最后回到 `run()`回填结果。申请服务另在 `return_demo.py`，模型工具名通过 `execute_return_tool()`映射到 `ReturnService.prepare()`和 `submit()`，不是同名Python函数。
 
 已有18项本地测试覆盖查询与申请服务。在线模型是否选对工具、是否询问缺失字段、是否如实解释失败，仍需另行验证。工具正常工作，不自动代表模型选得正确。
 

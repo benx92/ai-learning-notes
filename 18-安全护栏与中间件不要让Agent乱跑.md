@@ -38,6 +38,8 @@ A3003的草稿包含订单、原因、用户和有效期。模型发出`submit_r
 
 如果尚未确认，返回：
 
+<!-- example-kind: illustration -->
+
 ```json
 {"ok": false, "error": "confirmation_required"}
 ```
@@ -79,7 +81,9 @@ A3003的草稿包含订单、原因、用户和有效期。模型发出`submit_r
 
 关键在于，检查不通过时，业务函数根本没有执行。
 
-下面是一个独立的Python小实验，不依赖任何Agent框架，也不创建真实申请：
+下面直接摘自 [`confirmation_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/18-guardrails/confirmation_demo.py)，不依赖任何Agent框架，也不创建真实申请。运行方法见[实验说明](https://github.com/benx92/ai-learning-notes/blob/main/examples/18-guardrails/README.md)：
+
+<!-- example-source: examples/18-guardrails/confirmation_demo.py -->
 
 ```python
 def submit_demo(request):
@@ -106,9 +110,10 @@ def with_trace(handler):
     return wrapped
 
 
-run = with_trace(require_confirmation(submit_demo))
-print(run({"confirmed": False}))
-print(run({"confirmed": True}))
+if __name__ == "__main__":
+    run = with_trace(require_confirmation(submit_demo))
+    print(run({"confirmed": False}))
+    print(run({"confirmed": True}))
 ```
 
 第一次输出开始、结束和拒绝结果，没有“进入业务函数”。第二次才出现业务函数的打印。布尔值在这里由实验固定提供；实际应用绝不能允许模型通过参数填`confirmed=true`给自己授权。

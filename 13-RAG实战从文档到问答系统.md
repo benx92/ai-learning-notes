@@ -76,6 +76,8 @@ flowchart TD
 
 这次使用PyMuPDF。下面直接摘自[`loader.py`中的`DocumentLoader._pdf()`](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/loader.py)，展示项目实际怎样逐页读取。它是类中的方法，不是单独运行的脚本：
 
+<!-- example-source: examples/13-rag/loader.py -->
+
 ```python
 @staticmethod
 def _pdf(path):
@@ -95,11 +97,15 @@ def _pdf(path):
 
 项目里的读取函数需要把结果交给后续程序，所以这里用`yield`，而不是`print()`。它每次提供一对数据：这一页的正文，以及包含`page`和`location`的位置字典。`load()`负责逐条收集这些结果、补上文件来源，再生成文本单元；打印只是调用者观察结果的一种方式。
 
+沿着源码查找时，顺序是 `rag.py` 的 `main()`处理 `extract` 命令 → `DocumentLoader.load()`按扩展名选择 `_pdf()` → `load()`补上来源并生成 `DocumentUnit` → `main()`打印结果。正文中的 `_pdf()`保留实际方法实现；下面的调用实验直接复用 `load()`，不用再维护另一份“只打印PDF”的读取代码。
+
 `@staticmethod`表示这个方法不需要读取实例字段，因此没有`self`参数。加密文件和没有提取出文字的页面会明确报错，避免程序把缺失内容当成正常政策继续入库。空白页和扫描页都可能触发空文本检查，仍需对照原件判断；有少量页脚文字的扫描页也可能通过这个检查，所以非空不等于完整。
 
 第1页的关键内容应当是会员15日、普通订单7日，第2页则要保留“不支持”这个否定条件和退款到账说明。先对照文件核对这些内容，再继续。
 
 **为什么还要记页码？**因为最后用户可能问：“你说可以申请，是在哪里看到的？”只留下文字，之后很难回答。于是加载器把正文和位置放在同一条记录中：
+
+<!-- example-kind: illustration -->
 
 ```json
 {
@@ -113,6 +119,8 @@ def _pdf(path):
 配套程序把这种记录命名为`DocumentUnit`。名字可以晚些记，先抓住结果：**读文件之后，我们得到带来源位置的文字，而不是已经生成的答案。**
 
 要观察上面这个方法的实际结果，在配套目录调用已有的加载器即可。下面是调用示例，直接使用仓库代码，不需要重新抄写`_pdf()`：
+
+<!-- example-kind: usage -->
 
 ```python
 from loader import DocumentLoader
@@ -128,6 +136,8 @@ for unit in units:
 ## 第二步：运行入库，检查写入数量与记录对应
 
 加载器输出已经核对过，接下来调用`Pipeline.ingest()`把它们写入库。在配套环境、PDF所在目录运行下面的片段，可以先看到这一整步的入口与结果，再看内部怎样处理：
+
+<!-- example-kind: usage -->
 
 ```python
 from pathlib import Path
@@ -188,6 +198,8 @@ print({key: report[key] for key in ("units", "chunks", "total")})
 
 下面摘自[`rag.py`中的`Pipeline.ingest()`](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/rag.py)，`start:end`表示当前批次的范围。它依赖该方法前面准备好的四个列表，不是独立脚本：
 
+<!-- example-source: examples/13-rag/rag.py -->
+
 ```python
 self.collection.upsert(
     ids=ids[start:end],
@@ -204,6 +216,8 @@ self.collection.upsert(
 编码函数也值得看一眼。下面摘自[`rag.py`中的`Embedder.encode()`](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/rag.py)，依赖对象保存的Tokenizer、模型和长度上限：
 
 这三个字段在创建编码器时就已准备好：`self.model`是加载的嵌入模型，`self.tokenizer`负责计数，`self.limit`读取该模型的输入上限。下面的`self.model`与前面生成自然语言回答的聊天模型不是同一个对象。
+
+<!-- example-source: examples/13-rag/rag.py -->
 
 ```python
 def encode(self, texts):
@@ -237,6 +251,8 @@ def encode(self, texts):
 例如，我们希望看见两类内容：第1页的会员期限，以及第2页的定制商品例外。只找到“15日”，没有检查适用对象和例外，依据仍然不完整。
 
 在配套程序外观察检索结果时，可以这样调用已有的`Pipeline.retrieve()`：
+
+<!-- example-kind: usage -->
 
 ```python
 question = "会员买的非定制商品，签收10天后还能申请退货吗？"
@@ -285,6 +301,8 @@ Chroma允许一次查询多个问题，所以原始返回值常是“每个问�
 ## 第四步：检查实际上下文，再接入生成请求
 
 检索返回了`hits`，现在要检查其中哪些正文真正进入模型输入。准备好的候选不会自动传给聊天模型；实际交接由`pack_context()`完成：
+
+<!-- example-kind: usage -->
 
 ```python
 from rag import pack_context
@@ -336,6 +354,8 @@ user：reference_material（本次实际选入的正文）
 
 把检索、选择资料和生成连接起来的是[`rag.py`中的`ask()`](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/rag.py)。下面是该函数的实际实现：
 
+<!-- example-source: examples/13-rag/rag.py -->
+
 ```python
 def ask(pipeline, question, top_k=5, threshold=-1.0, budget=6000, generator=generate):
     hits = pipeline.retrieve(question, top_k, threshold)
@@ -357,6 +377,17 @@ def ask(pipeline, question, top_k=5, threshold=-1.0, budget=6000, generator=gene
 模型根据证据组织解释，程序则保留核验入口。提示要求依据资料，有助于约束回答，但仍然需要检查有没有丢掉条件、编造内容或引用错误。
 
 ## 用命令行复现，并保存可核对的问答结果
+
+本章代码位置可按下表对照：
+
+| 正文步骤 | 实际源码入口 | 数据交接 |
+| --- | --- | --- |
+| 读取文件 | `loader.py`：`DocumentLoader.load()`、`_pdf()` | 文件路径 → `DocumentUnit`列表 |
+| 编码与入库 | `rag.py`：`Embedder.encode()`、`Pipeline.ingest()` | 文本单元 → 带来源的库内记录 |
+| 检索 | `rag.py`：`Pipeline.retrieve()` | 问题 → `hits` |
+| 组装资料 | `rag.py`：`pack_context()` | `hits` → `context`、`evidence` |
+| 生成与返回 | `rag.py`：`generate()`、`ask()` | 问题和资料 → 答案、状态与证据 |
+| 命令行 | `rag.py`：`main()` | `extract`、`ingest`、`retrieve`、`query`分别调用上述步骤 |
 
 动手时使用[完整代码与安装说明](https://github.com/benx92/ai-learning-notes/tree/main/examples/13-rag)。`examples`只是仓库存放示例的目录，`rag.py`是主程序，`loader.py`负责读取各类文件。正文的片段帮助理解，运行时使用完整文件。
 
