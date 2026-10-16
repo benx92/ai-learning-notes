@@ -1,9 +1,10 @@
 # 第19章：LangChain组件与执行循环
 
-配合正文理解框架封装了什么。示例独立运行，不需要RAG数据库或MCP服务。
+配合正文理解框架封装了什么。先观察一次提示准备，再新增订单查询需求，最后按需接入在线Agent。不需要RAG数据库或MCP服务。
 
 ## 文件
 
+- `reading_demo.py`：按正文顺序比较普通Python消息与模板消息，再手动查询A1001；不请求聊天模型。
 - `components_demo.py`：真实组件的离线练习，不请求聊天模型。打印模板消息、工具参数类型与带调用ID的结果。
 - `agent_demo.py`：可选的在线只读Agent，复用相同工具。需要自己的DeepSeek密钥和支持相应工具调用方式的模型。
 - `test_examples.py`：使用固定模型响应检查真实Agent循环，测试对象不具备自然语言理解能力。
@@ -16,11 +17,14 @@
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe reading_demo.py
 .\.venv\Scripts\python.exe components_demo.py
 .\.venv\Scripts\python.exe -m unittest -v
 ```
 
 直接依赖：LangChain 1.4.6、langchain-core 1.6.10、langchain-deepseek 1.1.1。测试环境中的LangGraph为1.2.15；需要保存完整环境时，记录间接依赖实际版本。
+
+`reading_demo.py`的模板准备和手动查询是同一售后场景的两种需求，不代表已经运行了一个有持久记忆的聊天应用。模板不会调用模型；工具的手动查询也不需要模型。`agent_demo.py`单独展示模型选择查询工具的路径，没有自动继承离线脚本中的政策消息。
 
 在线练习另行设置环境变量：
 

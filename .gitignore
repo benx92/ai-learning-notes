@@ -1,0 +1,36 @@
+# Publish articles, companion examples and reading supplements.
+/*
+!/.gitignore
+!/README.md
+!/LICENSE
+!/[0-9][0-9]-*.md
+/00-*.md
+!/examples/
+!/supplements/
+
+# Local environments and generated files.
+**/.venv/
+**/.venv*/
+**/venv/
+**/__pycache__/
+*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/node_modules/
+**/tmp/
+**/chroma_db/
+**/pdf_demo/
+**/.DS_Store
+**/Thumbs.db
+**/.idea/
+**/.vscode/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+.env
+.env.*
+!.env.example
+!.env.sample
