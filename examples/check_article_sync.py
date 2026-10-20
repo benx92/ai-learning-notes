@@ -1,4 +1,4 @@
-"""检查文章摘录、配套源码和第13章下载包；仅使用标准库，不调用模型。"""
+"""检查文章摘录、配套源码和第13—14章共享下载包；仅使用标准库，不调用模型。"""
 
 import argparse
 import ast
@@ -33,9 +33,13 @@ def is_excerpt(code, source):
 
 def archive_files(root=ROOT):
     article = next(root.glob("13-*.md"))
-    files = [article, root / "supplements/13-实现细节与运行排查.md"]
-    files.extend(path for path in (root / "examples/13-rag").iterdir()
+    files = [article, next(root.glob("14-*.md")),
+             root / "supplements/13-实现细节与运行排查.md",
+             root / "supplements/14-格式解析扩展.md"]
+    files.extend(path for directory in ("13-rag", "14-parsing")
+                 for path in (root / "examples" / directory).iterdir()
                  if path.is_file() and (path.suffix in {".py", ".md", ".txt", ".pdf", ".json"}
+                                        or path.suffix in {".csv", ".docx"}
                                         or path.name in {".gitignore", ".gitattributes"}))
     return sorted(files)
 
@@ -83,7 +87,7 @@ def check(root=ROOT):
                 excerpts += 1
             except (SyntaxError, ValueError, OSError, StopIteration, tokenize.TokenError) as exc:
                 errors.append(f"{label}: {exc}")
-    # 归档包应包含正文、扩展说明和完整示例，且每份内容与当前文件一致。
+    # 共享归档包包含第13—14章正文、扩展说明和两目录完整示例。
     expected = {path.relative_to(root).as_posix(): path for path in archive_files(root)}
     try:
         with zipfile.ZipFile(root / "examples/13-rag-example.zip") as archive:

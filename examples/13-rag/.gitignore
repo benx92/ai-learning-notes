@@ -1,4 +1,6 @@
 .venv/
 chroma_db/
+text_demo/
+pdf_demo/
 __pycache__/
 .env

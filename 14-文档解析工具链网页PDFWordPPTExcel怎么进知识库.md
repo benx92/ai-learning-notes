@@ -1,19 +1,19 @@
 # 大模型应用开发学习 14：文档解析工具链：网页、PDF、Word、PPT、Excel 怎么进知识库
 
-一份PDF里明明写着售后政策，程序提取后却只剩“第2页”。返回值不为空，程序也没报错，可最需要的条款一字都没有。
+一份售后政策可以放在Markdown里，也可以放在PDF、网页、Word、PPT和Excel里。内容还是会员期限与定制例外，程序取得它们的方法却不再相同：有的能直接读文字，有的必须恢复表格关系，有的文字其实在图片中。
 
-这时应该先回到读文件这一步。模型收到的资料里没有规定，再好的回答能力也补不回原文件。
+[文档问答实战](13-RAG实战从文档到问答系统.md)先用`refund-policy.md`跑通了完整链路，留下一个明确的入口：加载器返回`units`，每个`DocumentUnit`包含`text`和`metadata`。这篇就从这个变量接着往前看，串起“原始文件 → 内容提取 → 结构还原与核对 → 统一知识单元 → 入库验证”。
 
-问题出在读文件这一步：屏幕上看见的内容，不一定以连续文字保存在文件中。它可能是一张扫描图片，也可能分散在表格、备注和不同文本框里。我们需要先弄清这些内容怎样组成一条完整规则，再决定怎么提取。
+这里说的“进知识库”，既要解决不同格式怎样读取，也要检查图文内容是否被可靠转换。先把可提取文字、扫描文字和表格关系整理成当前程序能用的知识单元，再复用切分、编码、存储和问答。各格式不是重新写一套RAG，而是补齐同一个入口。
 
 > **配套代码说明：**本章与文档问答实战共用 [GitHub配套代码](https://github.com/benx92/ai-learning-notes/tree/main/examples/13-rag)，基础解析实现见 [`loader.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/loader.py)。建议结合正文对照查看，依赖安装方法见示例目录中的README。
 
-基础解析仍使用 `examples/13-rag/loader.py`。本章的正文选择、OCR开关、标题继承、备注和指定表头实验，另存于 [examples/14-parsing](https://github.com/benx92/ai-learning-notes/blob/main/examples/14-parsing/README.md)，正文代码与这些实验文件对应。运行实验只打印解析结果；接入加载器并重新入库以后，知识库才会使用改进后的正文。
+基础解析仍使用 `examples/13-rag/loader.py`。本章的正文选择、OCR开关、标题继承、备注和指定表头实验，另存于 [examples/14-parsing](https://github.com/benx92/ai-learning-notes/blob/main/examples/14-parsing/README.md)，正文代码与这些实验文件对应。各格式小实验只打印解析结果；新增的`knowledge_loader.py`已把Word标题继承接回统一接口，`demo_ingest.py`再复用实战篇的演示流程。其余独立改进仍需逐项适配，不能把全部实验当成已经接入。
 
 | 文件 | 本章使用的工具 | 先观察什么 |
 | --- | --- | --- |
-| 网页 | Beautiful Soup | 哪一部分才是当前正文 |
 | PDF | PyMuPDF，必要时配合OCR | 正文是可读取文字，还是图片里的字 |
+| 网页 | Beautiful Soup | 哪一部分才是当前正文 |
 | Word `.docx` | python-docx | 条款属于哪个标题，表格怎样接在正文中 |
 | PPT `.pptx` | python-pptx | 条件有没有藏在备注、图片或图表里 |
 | Excel `.xlsx` | openpyxl | 数字对应什么表头、单位和计算状态 |
@@ -23,8 +23,8 @@
 
 | 格式 | 现有 `loader.py` 方法 | 本章另行演示的改进 |
 | --- | --- | --- |
-| HTML | `_html()`读取本地全文并去除脚本与样式 | `html_demo.py`选择已确认的正文区域 |
 | PDF | `_pdf()`逐页取文字，检查加密和空文本 | `pdf_demo.py`显式选择OCR，需额外环境 |
+| HTML | `_html()`读取本地全文并去除脚本与样式 | `html_demo.py`选择已确认的正文区域 |
 | Word | `_docx()`按顺序读取正文块和表格行 | `word_demo.py`继承规范标题，把表头配入数据行 |
 | PPT | `_pptx()`读取文本框、表格和组合形状 | `ppt_demo.py`额外观察已有备注 |
 | Excel | `_xlsx()`把首个非空行当表头 | `excel_demo.py`指定工作表与表头行 |
@@ -32,7 +32,54 @@
 
 这些是不同文件的处理分支，不是每份资料都要依次经过的五个步骤。它们最终要交给知识库的东西相同：**读得懂的正文，以及能找到原件的位置。**
 
-## 先看一种最容易忽略的错误：字都在，意思却丢了
+## 先接住统一变量，再检查内容有没有失真
+
+纯文本案例中，加载器返回一份全文；现在按资料结构生成多个单元。入口函数仍然不变，例如在配套目录读取已经准备好的文字PDF：
+
+<!-- example-kind: usage -->
+
+```python
+from loader import DocumentLoader
+
+units = DocumentLoader().load("refund-policy.pdf")
+for unit in units:
+    print(unit.metadata)
+    print(unit.text)
+```
+
+这次`units`里每个单元对应一个物理页面。换成Word，可能是正文块或表格行；换成Excel，则是带表头的记录。`units`的数量和位置字段会变，`unit.text`与`unit.metadata`这两个访问方式保持一致。
+
+基础加载器的各格式方法先交出“正文、位置元数据”二元组，`load()`再补上来源与格式，生成`DocumentUnit`。这两层返回值不能混用：单独实验打印了一个字典列表，并不表示它已经接进主程序。
+
+```mermaid
+flowchart TD
+    A[原始文件] --> B{先判断内容在哪里}
+    B --> C[可读取文字：提取正文]
+    B --> D[扫描文字：识别并核对]
+    B --> E[表格和图文关系：保留结构与条件]
+    C --> F[整理为正文与位置]
+    D --> F
+    E --> F
+    F --> U[load：生成units中的DocumentUnit]
+    U --> I[ingest：切分 编码 保存]
+    I --> Q[retrieve与query：验证新资料能否使用]
+```
+
+图中扫描识别与复杂图文处理是按资料选择、需要接入的扩展，基础加载器不会自动覆盖所有分支。本文既说明现有分支做了什么，也用独立实验展示该怎样补足它。
+
+**多格式与多模态在这里怎样连接？**文件后缀决定容器怎样打开，具体内容决定还要做哪些转换。一份PDF可能全是文字，也可能是扫描页，还可能混有流程图。至少先分清三类内容：
+
+| 内容 | 怎样接回当前文本知识库 | 核对重点 |
+| --- | --- | --- |
+| 原生文字 | 提取并清理，保留标题与来源 | 条款是否完整，正文顺序是否正确 |
+| 图片里的文字 | OCR后保留原页或图片位置 | 数字、否定词、单位是否识别正确 |
+| 表格、流程图或图表中的关系 | 表格配回字段与单位；图示需要经核验的关系说明 | 不能只读出标签而丢掉对象、箭头与条件 |
+
+OCR取得图上的字，不会自动还原所有关系。例如流程图同时写着“申请”“审核”“退款”，只把这三个词拼起来，就丢掉了先后顺序。需要结合原图整理并核验；未能可靠恢复的部分，要保留原件、定位与未覆盖说明。本文的基础加载器没有实现通用图示理解。
+
+把这些内容转为`text`后，本例仍然使用文本向量检索。直接编码和检索图像，是另一种多模态检索设计，还要改变表示、索引以及生成时交付原图的方式。当前先把能可靠转换的内容接回文本链路，不把支持多种文件后缀等同于已实现完整多模态RAG。
+
+**统一变量以后，最容易遗漏的仍是内容关系。**
 
 继续使用虚构售后规则：会员订单15日内可申请，普通订单7日内可申请，定制商品不支持无理由退货。
 
@@ -102,54 +149,34 @@ flowchart TD
 
 **清洗时也要保留证据。**去掉重复页脚、统一换行可以减少噪声，但页脚可能包含版本日期，空单元格可能表示沿用上方类别，换行也可能区分两个列表项。更稳的做法是保留原件与原始提取结果，再生成清洗版本，记录使用了什么规则。
 
-## 网页：先圈出正文，再去掉标签
+## PDF：先读文字层，再处理扫描与版面
 
-售后网页的正文写着会员15日，页面导航里却有一个旧活动入口：“30天退换”。把整页文字全部提取出来，就可能把旧宣传语混进政策。
+**从文本文件扩展到原生PDF。**配套的两页售后政策有可提取的文字，加载器逐页读取，给每段正文配上物理页码，再交给统一入口。下面是[`loader.py`中的`DocumentLoader._pdf()`](https://github.com/benx92/ai-learning-notes/blob/main/examples/13-rag/loader.py)的实际实现，是类中的方法，不是独立脚本：
 
-网页使用HTML标签组织内容。`article`常表示独立文章，`main`表示主要区域，`nav`通常是导航。解析时可以利用这些结构先找到正文，再清理脚本和样式。
-
-下面摘自独立实验 [`html_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/14-parsing/html_demo.py)，使用已拿到的HTML，不访问网站，也不运行网页脚本：
-
-<!-- example-source: examples/14-parsing/html_demo.py -->
+<!-- example-source: examples/13-rag/loader.py -->
 
 ```python
-from bs4 import BeautifulSoup
+@staticmethod
+def _pdf(path):
+    import pymupdf
 
-
-if __name__ == "__main__":
-    html = """<nav>旧活动：30天退换</nav>
-    <article><h1>会员订单退货</h1>
-    <p>会员订单签收后15日内可以申请退货。</p></article>"""
-    soup = BeautifulSoup(html, "html.parser")
-    body = soup.select_one("article")
-    if body is None:
-        raise ValueError("没有找到正文，请检查页面结构")
-    for tag in body.select("script, style, noscript"):
-        tag.decompose()
-    print(body.get_text(separator="\n", strip=True))
+    with pymupdf.open(path) as document:
+        if document.needs_pass:
+            raise ValueError("PDF 已加密，请先解密后再解析")
+        for number, page in enumerate(document, 1):
+            text = page.get_text("text", sort=True).strip()
+            if not text:
+                raise ValueError(f"PDF 第 {number} 页未提取到文字；请检查空白页或先做 OCR")
+            yield text, {"page": number, "location": f"PDF 第 {number} 页"}
 ```
 
-这里Beautiful Soup负责解析HTML，`select_one()`选定区域，`get_text()`提取区域里的文字。结果只应包含会员标题和15日条款，旧活动被留在外面。[Beautiful Soup文档](https://www.crummy.com/software/BeautifulSoup/bs4/doc/)
+`path`是传入的PDF路径，`open()`打开文件，`enumerate(document, 1)`从1开始给物理页面编号，`get_text()`取得文字，`.strip()`去掉首尾空白。`sort=True`尝试按页面位置整理文字顺序，不会自动恢复所有复杂表格和多栏关系。[PyMuPDF文本提取说明](https://pymupdf.readthedocs.io/en/latest/recipes-text.html)
 
-这一步解决的是“正文选错”的问题。不是所有站点都有`article`，一个页面也可能有多个文章区域，需要根据真实页面调整选择范围。
+项目里的读取函数需要把结果交给后续程序，所以这里用`yield`，而不是`print()`。它每次提供一对数据：这一页的正文，以及包含`page`和`location`的位置字典。`load()`负责逐条收集这些结果、补上文件来源，再生成文本单元；打印只是调用者观察结果的一种方式。
 
-还要区分**拿到网页**和**解析网页**。有的网页初始HTML只有空壳，正文要运行脚本或登录后才能出现。解析器不会替你执行JavaScript。如果输入本来没有正文，反复修改去标签方法也找不出政策。
+`@staticmethod`表示这个方法不读取实例字段，因此没有`self`参数。`load()`补齐来源和文件类型，组成问答程序使用的`DocumentUnit`。与纯文本分支相比，这里增加了页面遍历和空文本检查；输出仍然是正文与位置，统一入口仍然返回`DocumentUnit`。
 
-实际检查可以很具体：浏览器里能看见那句15日吗？拿到的HTML里有这句话吗？选中的正文区域包含它吗？这三问分别定位访问、获取和解析问题。
-
-正文读对以后，再保留来源URL、获取时间和已确认的政策版本。获取时间记录的是何时拿到页面，不自动等于规则生效时间。
-
-正文中的标题和表格也需要继续整理。比如标题是“定制商品”，下一段只有“不支持无理由退货”，两者应该一起进入证据；表格不能仅把单元格逐个串起来，而应保留列名与行类别。
-
-接入现有系统时，修改位置是`DocumentLoader._html()`：原来取整个HTML文本，现在先选择已经确认的正文区域，再返回文字与位置。独立小实验只验证选择效果，修改加载器并重新入库，才会改变实际知识库。
-
-如果已经确认这批页面都用`article`保存正文，可以把上面“解析、选择、去噪、取文字”的代码整理为`extract_article(html)`函数，定义在`loader.py`的类之前；函数返回清理后的字符串。类中的`_html()`再用`yield extract_article(html), {"location": "HTML正文区域"}`提供结果。这里的`yield`一次提供“正文、位置”这一对数据，供统一入口收集；不是直接调用模型。
-
-如果页面有多个`article`，当前代码只取一个，可能漏正文；如果正文主要是图片，选中区域也不会自动识别图片里的字。这些检查仍然回到同一条标准：用户问题所需的规则，到底有没有进入输出。
-
-## PDF：先判断字存在哪里，再判断顺序对不对
-
-回到开头只读出“第2页”的文件：政策正文是一张扫描图片，页脚却是可以直接读取的文字。所以文本提取非空，却没有覆盖正文。
+**换成扫描页，基础方法为什么不够？**假设另一份PDF的政策正文是一张扫描图片，页脚“第2页”却是可以直接读取的文字。所以文本提取非空，却没有覆盖正文。基础分支会拒绝空文本页和加密文件，却发现不了所有“只提取到一点文字”的页面，仍需与原件对照。
 
 PDF中可直接读取的字符，通常称为文字层。原生PDF可能有文字层；扫描件可能只有图像，也可能已经附有识别后的文字层。能复制文字是一条线索，复制后是否乱码、是否缺内容还要核对。
 
@@ -198,7 +225,7 @@ with pymupdf.open("refund-policy.pdf") as document:
         print(f"第{number}页：\n{text}")
 ```
 
-这个文件本来有文字层，因此不需要OCR。检查自己的扫描件时，先换成对应文件，再对已确认需要识别的页选择`use_ocr=True`；并不是把示例里的开关统一打开，结果就一定更好。[PyMuPDF的OCR处理说明](https://pymupdf.readthedocs.io/en/latest/recipes-ocr.html)
+这个文件是纯文本案例之后新增的PDF输入，本来有文字层，因此不需要OCR。检查自己的扫描件时，先换成对应文件，再对已确认需要识别的页选择`use_ocr=True`；并不是把示例里的开关统一打开，结果就一定更好。[PyMuPDF的OCR处理说明](https://pymupdf.readthedocs.io/en/latest/recipes-ocr.html)
 
 与`pip install pymupdf`不同，Tesseract引擎及语言数据属于额外环境。只有Python包而没有引擎，OCR分支仍可能失败。当前OCR环境尚未实测，不把这段接口示例当作识别效果证明；普通文字提取的PDF样例则已有实际验证。
 
@@ -213,6 +240,51 @@ OCR通常比原生提取更耗时，同一页识别后得到的`TextPage`适合�
 表格特别需要“读回一整条”的检查。例如第1页末尾只有“会员订单”，第2页第一行才写“15日内”。按页独立切分虽然页码准确，却可能丢掉配对关系。处理时可以关联两页的表头和记录，同时记录涉及两页；不能为了强行保留一个页码，编造完整单页证据。
 
 对于多栏排版，也不要只检查最后字符串看起来通顺。应选一个横跨关键条件的段落，对照页面看是否跳栏、穿插页脚或重复标题。顺序一旦错了，后面的模型可能把相邻文字误认为同一条规则。
+
+## 网页：先圈出正文，再去掉标签
+
+售后网页的正文写着会员15日，页面导航里却有一个旧活动入口：“30天退换”。把整页文字全部提取出来，就可能把旧宣传语混进政策。
+
+网页使用HTML标签组织内容。`article`常表示独立文章，`main`表示主要区域，`nav`通常是导航。解析时可以利用这些结构先找到正文，再清理脚本和样式。
+
+下面摘自独立实验 [`html_demo.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/14-parsing/html_demo.py)，使用已拿到的HTML，不访问网站，也不运行网页脚本：
+
+<!-- example-source: examples/14-parsing/html_demo.py -->
+
+```python
+from bs4 import BeautifulSoup
+
+
+if __name__ == "__main__":
+    html = """<nav>旧活动：30天退换</nav>
+    <article><h1>会员订单退货</h1>
+    <p>会员订单签收后15日内可以申请退货。</p></article>"""
+    soup = BeautifulSoup(html, "html.parser")
+    body = soup.select_one("article")
+    if body is None:
+        raise ValueError("没有找到正文，请检查页面结构")
+    for tag in body.select("script, style, noscript"):
+        tag.decompose()
+    print(body.get_text(separator="\n", strip=True))
+```
+
+这里Beautiful Soup负责解析HTML，`select_one()`选定区域，`get_text()`提取区域里的文字。结果只应包含会员标题和15日条款，旧活动被留在外面。[Beautiful Soup文档](https://www.crummy.com/software/BeautifulSoup/bs4/doc/)
+
+这一步解决的是“正文选错”的问题。不是所有站点都有`article`，一个页面也可能有多个文章区域，需要根据真实页面调整选择范围。
+
+还要区分**拿到网页**和**解析网页**。有的网页初始HTML只有空壳，正文要运行脚本或登录后才能出现。解析器不会替你执行JavaScript。如果输入本来没有正文，反复修改去标签方法也找不出政策。
+
+实际检查可以很具体：浏览器里能看见那句15日吗？拿到的HTML里有这句话吗？选中的正文区域包含它吗？这三问分别定位访问、获取和解析问题。
+
+正文读对以后，再保留来源URL、获取时间和已确认的政策版本。获取时间记录的是何时拿到页面，不自动等于规则生效时间。
+
+正文中的标题和表格也需要继续整理。比如标题是“定制商品”，下一段只有“不支持无理由退货”，两者应该一起进入证据；表格不能仅把单元格逐个串起来，而应保留列名与行类别。
+
+接入现有系统时，修改位置是`DocumentLoader._html()`：原来取整个HTML文本，现在先选择已经确认的正文区域，再返回文字与位置。独立小实验只验证选择效果，修改加载器并重新入库，才会改变实际知识库。
+
+如果已经确认这批页面都用`article`保存正文，可以把上面“解析、选择、去噪、取文字”的代码整理为`extract_article(html)`函数，定义在`loader.py`的类之前；函数返回清理后的字符串。类中的`_html()`再用`yield extract_article(html), {"location": "HTML正文区域"}`提供结果。这里的`yield`一次提供“正文、位置”这一对数据，供统一入口收集；不是直接调用模型。
+
+如果页面有多个`article`，当前代码只取一个，可能漏正文；如果正文主要是图片，选中区域也不会自动识别图片里的字。这些检查仍然回到同一条标准：用户问题所需的规则，到底有没有进入输出。
 
 ## Word：按正文顺序读取，让条款继承标题
 
@@ -483,7 +555,7 @@ CSV中的逗号留在“说明”字段里，没有被拆成第三列；JSONL会
 
 配套基础加载器支持CSV、JSON、JSONL。CSV分支使用标准解析器取得列表，JSON分支保留整体结构，JSONL保留物理行号；它们尚未按上面的业务字段生成专门记录。XML示例是独立实验，基础加载器尚无XML分支。能演示解析方法，与已经接入知识库，是两个不同结果。[Python CSV文档](https://docs.python.org/3.12/library/csv.html)、[ElementTree文档](https://docs.python.org/3.12/library/xml.etree.elementtree.html)
 
-## 这些格式怎样回到同一条问答流程
+## 把转换结果接回原来的入库与问答流程
 
 现在回到文档问答系统。PDF按页读取，PPT按幻灯片读取，Excel按带表头的记录读取，各自方法不同，但都输出正文与位置。后面的切分、编码和检索就不必重新理解文件格式。
 
@@ -497,7 +569,7 @@ flowchart TD
     F --> G[检索并生成回答]
 ```
 
-这里新增的关键步骤是核对。可以拿最容易改变结论的一条规则来验收：
+这里把纯文本案例中对规则的核对，扩展为每种格式都需要执行的验收。可以拿最容易改变结论的一条规则来检查：
 
 > 会员订单签收后15日内可以申请退货，定制商品不支持无理由退货。
 
@@ -509,13 +581,15 @@ flowchart TD
 
 新格式需要同时补上解析方法和扩展名映射；只把`.xml`写进支持列表，Python并不会自动知道怎样读取业务字段。路径不存在、格式不支持、编码不匹配、正文为空，也应保留明确错误，不能统一返回空字符串掩盖原因。基础文本读取要求UTF-8；编码不符时先确认并转换，不能靠忽略错误静默丢字。
 
-**以Word标题继承为例，接回同一个接口。**若要使用上面的`read_word_units()`，先把它的导入与函数定义放到`loader.py`的`DocumentLoader`类之前，不复制末尾的练习打印循环；再将类中的`_docx()`替换为下面的方法：
+**以Word标题继承为例，接回同一个接口。**现在不必手工修改基础`loader.py`。配套[`knowledge_loader.py`](https://github.com/benx92/ai-learning-notes/blob/main/examples/14-parsing/knowledge_loader.py)通过`KnowledgeLoader`继承基础加载器，复用`read_word_units()`，仅替换Word分支。下面是其中的实际方法：
 
-<!-- example-kind: adaptation -->
+<!-- example-source: examples/14-parsing/knowledge_loader.py -->
 
 ```python
 @staticmethod
 def _docx(path):
+    from word_demo import read_word_units
+
     for record in read_word_units(path):
         metadata = record["metadata"]
         location = f"Word 块 {metadata['block']}"
@@ -526,7 +600,7 @@ def _docx(path):
 
 这个适配方法仍然返回统一入口需要的那一对数据；`load()`会继续补全`source`与`file_type`。`location`不能漏掉，因为配套检索程序用它说明原始位置。正文中已有标题路径，模型实际读取正文时才不会丢掉适用对象。其他格式的独立实验，也需要做这样的接口交接，不能把一个字典列表直接当成已有加载器的返回格式。
 
-如果补了正文选择、标题继承或备注提取，要把对应处理接到加载器里，先用`extract`观察，再重新入库。只是运行一段独立演示，知识库不会自动用上改进。
+Word标题继承已经由这个子类接入；正文区域选择、PPT备注或OCR等其他改进仍需按相同约定接入。只运行独立实验，知识库不会自动用上它们。
 
 在配套目录准备好文件与依赖后，可以这样观察当前解析结果：
 
@@ -538,14 +612,35 @@ def _docx(path):
 
 这三条命令只调用当前`loader.py`，不加载嵌入模型、不请求生成服务。尚未接入改进时，它们显示的是基础解析结果；接入后，重新运行同一条命令比较标题、备注或字段有没有保住。PDF也可用相同入口检查；OCR仍须另行接入并准备环境。
 
-核对通过以后，再对同一个文件重新入库，例如：
+**实际运行已接入的改进。**在`examples/14-parsing`目录先创建一份与文本案例规则相同的Word文件，再使用第13章已安装完整依赖的解释器：
 
 ```powershell
-.\.venv\Scripts\python.exe rag.py --db ./pdf_demo ingest --path policy.docx
-.\.venv\Scripts\python.exe rag.py --db ./pdf_demo retrieve -q "会员订单的申请期限是多少？"
+..\13-rag\.venv\Scripts\python.exe build_sample.py
+..\13-rag\.venv\Scripts\python.exe demo_ingest.py --path policy.docx --extract-only
+..\13-rag\.venv\Scripts\python.exe demo_ingest.py --path policy.docx
 ```
 
-`extract`的输出变化说明解析代码生效，重新入库后候选变化才说明知识库更新生效。选择同一数据库和同一来源路径，才能比较这次改进；改了文件路径会被视为另一份来源。验收不通过时先调整解析，不要覆盖已经核对过的有效索引。
+`build_sample.py`拒绝覆盖已有的`policy.docx`，有自己的文件时可直接跳过创建，或用`--output`另取文件名。第二条只核对改进后的知识单元；第三条使用`KnowledgeLoader`替换流程中的加载器，再真实执行入库和检索。输出中的`parsed`应保留标题与规则，`hits`、`context`和`evidence`应继续带着Word块位置。
+
+默认数据库是脚本旁的`format_demo`，与纯文本演练的`text_demo`分开。`demo_ingest.py`不重新实现入库与问答，而是调用`demo_text.py`里的同一个`run_demo()`，将改进加载器交给已有`Pipeline`。旧的`rag.py extract`仍使用基础加载器，不能用它的输出冒充标题继承已经生效。
+
+无需创建办公文档，也可以先用已附带的`policy.csv`练习统一接口：
+
+```powershell
+..\13-rag\.venv\Scripts\python.exe demo_ingest.py --extract-only
+```
+
+脚本不带`--path`时默认选这份CSV；基础CSV读取方式仍然沿用现有加载器，没有宣称新增字段理解算法。
+
+检索中确认会员期限与商品例外都存在，再沿用实战篇的生成凭证，显式请求生成：
+
+```powershell
+..\13-rag\.venv\Scripts\python.exe demo_ingest.py --path policy.docx --generate --output word-run.json
+```
+
+Word来源应使用正文块或表格行定位，不能冒用PDF页码。检查`result.evidence`中的原文能否支持“可以申请”的结论。默认演示只到检索证据，不会调用付费生成接口；`--generate`才会提交问题与资料。
+
+改进加载器的`parsed`输出变化说明解析代码生效，重新入库后候选变化才说明知识库更新生效。后续比较解析改进时，继续使用这个数据库和同一来源路径；改了文件路径会被视为另一份来源。验收不通过时先调整解析，不要覆盖已经核对过的有效索引。
 
 可以用下面这张清单把学习点落实成验收项：
 
@@ -565,13 +660,13 @@ def _docx(path):
 
 暂时读不准的文件，保留原件、提取结果和失败原因，换解析方法或人工复核。不能为了让入库命令显示成功，就用猜测内容填满缺口。
 
-正文中的独立代码已使用小型文件检查：网页可以排除区域外导航，Word能切换标题并保留表格顺序，PPT能取得文本框、表格、组合形状和已有备注，Excel能按指定表头生成记录并保留零值。CSV、JSON、JSONL、XML示例与Word接口适配也检查了输出。它们验证的是这些简单输入上的代码行为，OCR识别效果、多栏恢复和复杂文件覆盖仍需另行核对。
+正文中的独立代码已使用小型文件检查：网页可以排除区域外导航，Word能切换标题并保留表格顺序，PPT能取得文本框、表格、组合形状和已有备注，Excel能按指定表头生成记录并保留零值。CSV、JSON、JSONL、XML示例与Word接口适配也检查了输出。新增接入测试进一步使用真实Word解析和Chroma，检查标题、正文与位置从知识单元一直传到最终证据；该流程测试使用测试向量，不证明语义检索质量。它们验证的是这些简单输入上的代码行为，OCR识别效果、多栏恢复和复杂文件覆盖仍需另行核对。
 
 ## 最后收束成一个完整认识
 
 文档解析要保住的是一条完整意思，而不只是字符。网页先确定正文，PDF检查文字层与版面，Word保留标题和正文关系，PPT补查备注与视觉信息，Excel保留字段、单位和计算状态。
 
-工具帮我们取得文件中的内容，文件本身的结构决定怎样组织它。把条件、结论和来源一起留下，后面的检索与回答才有可靠输入。
+工具帮我们取得文件中的内容，文件本身的结构决定怎样组织它。把条件、结论和来源一起留下，核对解析结果，再重新入库并复查候选，新的文件格式才真正接回原有问答流程。从`refund-policy.md`到PDF、网页和办公文件，变化的是前端怎样产生可靠的`units`；后面的程序仍沿用同一组数据交接。先验证转换，再验证入库、候选和回答，文件支持才算真正接通。
 
 ## 参考资料
 

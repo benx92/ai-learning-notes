@@ -4,8 +4,8 @@
 
 | 章节 | 配套位置 | 对照入口与范围 |
 | --- | --- | --- |
-| 13 RAG实战 | [13-rag](13-rag/README.md) | `loader.py`解析；`rag.py`的`Pipeline`入库与检索，`pack_context`组装，`ask`连接生成 |
-| 14 文档解析 | [13-rag](13-rag/README.md)、[14-parsing](14-parsing/README.md) | 前者是现有加载器；后者是正文中的独立解析实验，运行不会自动修改知识库 |
+| 13 RAG实战 | [13-rag](13-rag/README.md) | `demo_text.py`用`refund-policy.md`连续演示；`loader.py`输出知识单元，`Pipeline`入库与检索，`pack_context`组装，`ask`连接生成 |
+| 14 文档解析 | [13-rag](13-rag/README.md)、[14-parsing](14-parsing/README.md) | `knowledge_loader.py`接入Word标题继承；`demo_ingest.py`复用第13章流程，另保留各格式独立实验 |
 | 15 工具调用 | [15-tool-calling](15-tool-calling/README.md) | `tool_demo.py`查询循环；`return_demo.py`草稿、确认与本地申请记录 |
 | 16 MCP | [16-mcp](16-mcp/README.md) | `server.py`提供能力；`client.py`和`http_client.py`通信；`bridge_demo.py`演示固定请求桥接 |
 | 17 Agent | [15-tool-calling](15-tool-calling/README.md) | 复用查询循环和申请业务服务；详情查询、追问状态和完整在线申请Agent仍是设计说明 |
@@ -25,7 +25,7 @@
 py -3.12 examples/check_article_sync.py
 ```
 
-修改第13章正文、扩展说明或示例后，用 `py -3.12 examples/check_article_sync.py --rebuild-archive` 重建下载包并检查；不带参数时只检查，不修改文件。下载包现在同时包含第13章正文、对应扩展说明和完整示例。
+修改第13、14章正文、扩展说明或示例后，用 `py -3.12 examples/check_article_sync.py --rebuild-archive` 重建下载包并检查；不带参数时只检查，不修改文件。下载包现在同时包含第13、14章正文、对应扩展说明以及两个示例目录，保留目录关系后可直接使用共享演示流程。
 
 检查覆盖第13—19章及扩展说明中的Python和JSON片段，以及第13章下载包。源码摘录在代码块前用HTML注释`example-source`记录仓库相对路径；检查会忽略缩进、换行和注释，对照连续代码标记，因此变量名、参数、返回字段或执行检查的变化会报错。JSON工具声明另外与源码中的`TOOLS[0]`比较。
 
