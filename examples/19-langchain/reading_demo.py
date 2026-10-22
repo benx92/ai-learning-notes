@@ -34,7 +34,7 @@ def main():
     print("3. 用户新增订单查询需求，先手动调用工具：")
     result = get_refund_status.invoke({"order_id": "A1001"})
     print(json.dumps(json.loads(result), ensure_ascii=False))
-    print("下一步：配置自己的模型后，agent_demo.py演示模型选择工具。")
+    print("下一步：offline_agent_demo.py可离线观察循环；配置自己的模型后可运行agent_demo.py。")
 
 
 if __name__ == "__main__":

@@ -2,43 +2,14 @@ import asyncio
 import json
 import unittest
 
-from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import ValidationError
 
 from agent_demo import build_agent
 from components_demo import get_refund_status
-
-
-class ScriptedModel(BaseChatModel):
-    """固定请求用于验证框架调度，不模拟语言理解。"""
-
-    repeat: bool = False
-    calls: int = 0
-
-    @property
-    def _llm_type(self):
-        return "scripted-framework-check"
-
-    def bind_tools(self, tools, **kwargs):
-        return self
-
-    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        self.calls += 1
-        has_result = any(isinstance(m, ToolMessage) for m in messages)
-        if has_result and not self.repeat:
-            message = AIMessage(content="教学查询结果：A1001仍在审核中。")
-        else:
-            message = AIMessage(content="", tool_calls=[{
-                "name": "get_refund_status",
-                "args": {"order_id": "A1001"},
-                "id": f"call_test_{self.calls}",
-                "type": "tool_call",
-            }])
-        return ChatResult(generations=[ChatGeneration(message=message)])
+from offline_agent_demo import ScriptedModel
 
 
 class ExamplesTest(unittest.TestCase):

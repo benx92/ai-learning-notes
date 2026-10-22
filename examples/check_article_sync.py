@@ -51,7 +51,7 @@ def normalized(data, path):
 def check(root=ROOT):
     errors, excerpts, illustrations = [], 0, 0
     documents = sorted([path for path in root.glob("[0-9][0-9]-*.md")
-                        if 13 <= int(path.name[:2]) <= 19] + list((root / "supplements").glob("*.md")))
+                        if 13 <= int(path.name[:2]) <= 22] + list((root / "supplements").glob("*.md")))
     for path in documents:
         body = path.read_text(encoding="utf-8-sig")
         for block in FENCE.finditer(body):

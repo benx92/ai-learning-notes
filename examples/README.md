@@ -10,10 +10,13 @@
 | 16 MCP | [16-mcp](16-mcp/README.md) | `server.py`提供能力；`client.py`和`http_client.py`通信；`bridge_demo.py`演示固定请求桥接 |
 | 17 Agent | [15-tool-calling](15-tool-calling/README.md) | 复用查询循环和申请业务服务；详情查询、追问状态和完整在线申请Agent仍是设计说明 |
 | 18 安全护栏 | [18-guardrails](18-guardrails/README.md)、[15-tool-calling](15-tool-calling/README.md) | 独立包装实验与真实本地申请检查；未实现完整持久审批Agent |
-| 19 LangChain | [19-langchain](19-langchain/README.md) | `reading_demo.py`消息；`components_demo.py`工具；`agent_demo.py`的`build_agent`组织循环并设置限额 |
-| 20—24 | 尚无配套实现 | 当前正文文件只有待写提纲 |
+| 19 LangChain | [19-langchain](19-langchain/README.md) | `reading_demo.py`消息；`components_demo.py`工具；`offline_agent_demo.py`观察真实框架循环；`agent_demo.py`可选接入在线模型 |
+| 20 Runnable与LCEL | [20-lcel](20-lcel/README.md) | `chain_demo.py`观察顺序链、输入整理、并行映射、分支与流式；`reliability_demo.py`观察有限重试与失败回退 |
+| 21 结构化输出 | [21-structured-output](21-structured-output/README.md) | `validation_demo.py`区分语法与Schema；`extract_demo.py`观察结构化调用、校验与草稿判断；`agent_demo.py`对照最终结构字段 |
+| 22 Memory | [22-memory](22-memory/README.md) | 对照手工历史与检查点，验证跨进程恢复、状态注入、跨会话偏好及摘要触发 |
+| 23—24 | 尚无配套实现 | 当前正文文件只有待写提纲 |
 
-各目录的依赖、工作目录和环境变量分别见对应README。第15章用`DEEPSEEK_MODEL`，第13章用`RAG_CHAT_MODEL`，第19章用`LC_CHAT_MODEL`；它们是各脚本自己的配置名。
+各目录的依赖、工作目录和环境变量分别见对应README。第15章用`DEEPSEEK_MODEL`，第13章用`RAG_CHAT_MODEL`，第19—22章用`LC_CHAT_MODEL`；它们是各脚本自己的配置名。
 
 `refund_status`是第15、16章查询工具的结果字段；第19章工具返回`status`。这几个示例属于不同接口，正文分别沿用实际字段，跨脚本接入时要明确转换。
 
@@ -27,7 +30,7 @@ py -3.12 examples/check_article_sync.py
 
 修改第13、14章正文、扩展说明或示例后，用 `py -3.12 examples/check_article_sync.py --rebuild-archive` 重建下载包并检查；不带参数时只检查，不修改文件。下载包现在同时包含第13、14章正文、对应扩展说明以及两个示例目录，保留目录关系后可直接使用共享演示流程。
 
-检查覆盖第13—19章及扩展说明中的Python和JSON片段，以及第13章下载包。源码摘录在代码块前用HTML注释`example-source`记录仓库相对路径；检查会忽略缩进、换行和注释，对照连续代码标记，因此变量名、参数、返回字段或执行检查的变化会报错。JSON工具声明另外与源码中的`TOOLS[0]`比较。
+检查覆盖第13—22章及扩展说明中的Python和JSON片段，以及第13章下载包。源码摘录在代码块前用HTML注释`example-source`记录仓库相对路径；检查会忽略缩进、换行和注释，对照连续代码标记，因此变量名、参数、返回字段或执行检查的变化会报错。JSON工具声明另外与源码中的`TOOLS[0]`比较。
 
 调用示例、数据结构示意和接入改写分别使用`example-kind: usage`、`illustration`、`adaptation`标记；只检查语法，不把它们宣称为已经实现的源码。HTML注释不在正文渲染结果中显示，读者所需的文件与用途说明仍写在代码附近。
 
