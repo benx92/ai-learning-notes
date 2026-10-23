@@ -6,7 +6,7 @@
 
 `loader.py` 返回带原始位置的 `DocumentUnit`；`rag.py` 在每个单元内切分，让位置经过索引、候选、上下文一直进入最终 `evidence`。第13章重点是这条可检查的完整流程；复杂版面、OCR 和格式恢复留给后续文档解析章节。
 
-正文先用`refund-policy.md`跑通文本问答；Top K等概念直接沿用前文。结尾留下`DocumentUnit(text, metadata)`接口，再由[文档解析工具链](../../14-文档解析工具链网页PDFWordPPTExcel怎么进知识库.md)扩展PDF、网页、Office与图文内容转换。当前程序只接入文本向量检索，未实现直接多模态检索、混合检索、RRF或重排。
+正文先比较给模型资料前后的判断依据，区分嵌入模型、生成模型与普通程序，再用`refund-policy.md`跑通文本问答；Top K等概念直接沿用前文。结尾留下`DocumentUnit(text, metadata)`接口，再由[文档解析工具链](../../14-文档解析工具链网页PDFWordPPTExcel怎么进知识库.md)扩展PDF、网页、Office与图文内容转换。当前程序只接入文本向量检索，未实现直接多模态检索、混合检索、RRF或重排。
 
 ## 连续演示入口
 
@@ -47,8 +47,7 @@ py -3.12 -m venv .venv
 ```powershell
 .\.venv\Scripts\python.exe rag.py --db ./text_demo retrieve -q "会员买的非定制商品，签收10天后还能申请退货吗？"
 
-$env:DEEPSEEK_API_KEY = "替换为你自己的密钥"
-$env:RAG_CHAT_MODEL = "填写账户可用的模型名"
+# 先按下方“准备DeepSeek API”配置当前终端的Key和模型名。
 .\.venv\Scripts\python.exe rag.py --db ./text_demo query -q "会员买的非定制商品，签收10天后还能申请退货吗？"
 ```
 
@@ -63,6 +62,28 @@ $env:RAG_EMBEDDING_MODEL = "D:/models/paraphrase-multilingual-MiniLM-L12-v2"
 入库和查询必须使用相同的模型配置。默认模型是 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`。切分按该模型的 Tokenizer 计数，目标块长 80、重叠 12；编码前还会检查包含特殊 Token 的长度。
 
 生成接口固定为 DeepSeek 官方 HTTPS 端点。模型名应按当前 [官方文档](https://api-docs.deepseek.com/) 与账户权限填写。脚本读取进程环境变量，不自动加载 `.env`。`extract` 不加载模型、不调用生成服务；`ingest` 和 `retrieve` 不需要生成接口密钥；`query` 会把问题和选入的参考资料发送给该接口。
+
+## 准备DeepSeek API：账号、余额与Key
+
+本例只有有证据时的`query`与显式`--generate`才请求DeepSeek；解析、入库、检索和默认演示都不需要DeepSeek Key。MiniLM在本地编码，首次使用可能下载权重。
+
+1. 打开[DeepSeek开放平台](https://platform.deepseek.com/)，注册或登录，完成平台当时要求的验证。聊天网页能使用，不等于API已经配置好。
+2. 查看API可用余额。接口按输入、输出Token用量扣费；有可用赠金时可以先用，没有可用余额则到[充值页面](https://platform.deepseek.com/top_up)按页面要求充值。Key不是购买的调用额度；不要求先买月度会员，也不保证注册就有赠金。金额、支付方式及当前单价以控制台和[官方计费页](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)为准。
+3. 在[API keys](https://platform.deepseek.com/api_keys)创建练习用Key，例如命名`rag-learning`，复制并妥善保存完整密钥，不要提交到仓库；泄露后撤销并重建。
+4. 在随后运行Python的同一个PowerShell里配置，粘贴时不回显Key：
+
+```powershell
+$ragDemoSecret = Read-Host "粘贴自己的DeepSeek API Key" -AsSecureString
+$env:DEEPSEEK_API_KEY = [System.Net.NetworkCredential]::new("", $ragDemoSecret).Password
+Remove-Variable ragDemoSecret
+$env:RAG_CHAT_MODEL = "deepseek-flash"
+```
+
+模型名根据2026年10月20日[官方首次调用说明](https://api-docs.deepseek.com/zh-cn/)填写；后续如有变化，以文档和账户可用模型为准。示例固定请求`https://api.deepseek.com/chat/completions`，不需要设置Base URL，也不能直接换成其他平台的Key。
+
+环境变量对当前终端及其启动的Python生效，新开终端需要重新配置；脚本不自动读取`.env`。准备完成后运行`query`或`demo_text.py --generate`，核对答案、证据和`usage`即可。
+
+账号与接口异常参见[官方错误码说明](https://api-docs.deepseek.com/zh-cn/quick_start/error_codes/)，准备过程见[第13章正文](../../13-RAG实战从文档到问答系统.md)。
 
 ## 文件与解析范围
 

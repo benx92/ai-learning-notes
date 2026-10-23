@@ -51,7 +51,7 @@ def normalized(data, path):
 def check(root=ROOT):
     errors, excerpts, illustrations = [], 0, 0
     documents = sorted([path for path in root.glob("[0-9][0-9]-*.md")
-                        if 13 <= int(path.name[:2]) <= 22] + list((root / "supplements").glob("*.md")))
+                        if 13 <= int(path.name[:2]) <= 32] + list((root / "supplements").glob("*.md")))
     for path in documents:
         body = path.read_text(encoding="utf-8-sig")
         for block in FENCE.finditer(body):
@@ -99,7 +99,32 @@ def check(root=ROOT):
                     errors.append(f"第13章下载包内容过时：{name}")
     except (OSError, zipfile.BadZipFile) as exc:
         errors.append(f"第13章下载包不可读：{exc}")
+    expected_series = {path.relative_to(root).as_posix(): path for path in series_archive_files(root)}
+    try:
+        with zipfile.ZipFile(root / "examples/23-32-example.zip") as archive:
+            names = archive.namelist()
+            if len(names) != len(set(names)) or set(names) != set(expected_series):
+                errors.append("23—32篇下载包文件清单不一致")
+            for name in set(names) & set(expected_series):
+                if normalized(archive.read(name), name) != normalized(expected_series[name].read_bytes(), name):
+                    errors.append(f"23—32篇下载包内容过时：{name}")
+    except (OSError, zipfile.BadZipFile) as exc:
+        errors.append(f"23—32篇下载包不可读：{exc}")
     return errors, excerpts, illustrations
+
+
+def series_archive_files(root=ROOT):
+    files = [path for path in root.glob("[0-9][0-9]-*.md") if 23 <= int(path.name[:2]) <= 32]
+    files.extend((root / "supplements").glob("工具笔记-*.md"))
+    files.extend(path for path in (root / "examples/23-32-assistant").rglob("*")
+                 if path.is_file() and "__pycache__" not in path.parts
+                 and "data" not in path.relative_to(root / "examples/23-32-assistant").parts
+                 and (path.suffix in {".py", ".md", ".txt", ".json", ".sql"}
+                      or path.name == ".gitignore"))
+    files.extend(root / name for name in ["examples/13-rag/loader.py", "examples/13-rag/rag.py",
+                 "examples/13-rag/refund-policy.md", "examples/13-rag/requirements.txt",
+                 "examples/15-tool-calling/return_demo.py"])
+    return sorted(files)
 
 
 if __name__ == "__main__":
@@ -110,6 +135,9 @@ if __name__ == "__main__":
     if options.rebuild_archive:
         with zipfile.ZipFile(ROOT / "examples/13-rag-example.zip", "w", zipfile.ZIP_DEFLATED) as archive:
             for path in archive_files():
+                archive.write(path, path.relative_to(ROOT).as_posix())
+        with zipfile.ZipFile(ROOT / "examples/23-32-example.zip", "w", zipfile.ZIP_DEFLATED) as archive:
+            for path in series_archive_files():
                 archive.write(path, path.relative_to(ROOT).as_posix())
     problems, excerpts, illustrations = check()
     if problems:

@@ -85,7 +85,7 @@ def run_langchain(model):
     return result["messages"]
 
 
-def make_scripted_model():
+def make_scripted_model(reply_function=scripted_reply):
     """把同一个scripted_reply接到框架模型接口，不在适配器里执行工具。"""
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.messages import AIMessage
@@ -108,7 +108,7 @@ def make_scripted_model():
             roles = {"human": "user", "ai": "assistant"}
             plain = [{"role": roles.get(m.type, m.type), "content": m.content}
                      for m in messages]
-            reply = scripted_reply(plain, self.specs)
+            reply = reply_function(plain, self.specs)
             message = AIMessage(content=reply["content"], tool_calls=reply.get("tool_calls", []))
             return ChatResult(generations=[ChatGeneration(message=message)])
 

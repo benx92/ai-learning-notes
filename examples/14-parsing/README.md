@@ -2,7 +2,19 @@
 
 这里保存第14章正文中的实验，便于逐段对照。基础RAG程序仍使用[13-rag/loader.py](../13-rag/loader.py)。格式小实验仍只打印结果；`knowledge_loader.py`已接入Word标题继承，`demo_ingest.py`负责把转换结果送回第13章同一个入库与问答流程。
 
-建议先用第13章的`refund-policy.md`接通文本问答，再沿本章“统一知识单元接口 → PDF基础读取与扫描问题 → 网页 → Word → PPT → Excel → 结构化记录”的顺序扩展入口。解析结果核对通过并接回加载器后，继续复用原来的切分、编码与问答流程。
+正文先按原生文字、扫描图像与图表关系选择解析器、OCR或可选视觉模型，再引入统一知识单元。这里的普通解析实验不调用聊天模型；OCR只有显式选择的PDF路径，视觉模型尚未接入。入库、检索复用第13章的嵌入模型，生成回答需要另行开启。
+
+先用第13章的`refund-policy.md`接通文本问答；不同格式分别处理，最后汇入同一个知识单元接口：
+
+```mermaid
+flowchart TD
+    A["原始文件：按内容选择解析方法"] --> B["提取正文，保留结构与来源"]
+    B --> C["核对后生成DocumentUnit列表"]
+    C --> D["复用切分、编码与入库"]
+    D --> E["检索并核对实际证据"]
+```
+
+OCR环境准备见[PyMuPDF官方说明](https://pymupdf.readthedocs.io/en/latest/installation.html#enabling-integrated-ocr-support)，具体格式的处理范围见下表。
 
 使用Python 3.12，在本目录打开PowerShell：
 

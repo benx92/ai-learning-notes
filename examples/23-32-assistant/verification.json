@@ -1,0 +1,93 @@
+{
+  "date": "2026-10-23",
+  "python": "3.12.14",
+  "langgraph": "1.2.16",
+  "langchain": "1.4.6",
+  "rich": "15.0.0",
+  "behavior_tests": 21,
+  "all_behavior_tests_passed": true,
+  "experiments": {
+    "state": {
+      "passed": true,
+      "output_keys": [
+        "trace",
+        "stage",
+        "draft",
+        "applications"
+      ]
+    },
+    "routing": {
+      "passed": true,
+      "output_keys": [
+        "retries",
+        "batches"
+      ]
+    },
+    "stream": {
+      "passed": true,
+      "output_keys": [
+        "normal",
+        "fault"
+      ]
+    },
+    "skills": {
+      "passed": true,
+      "output_keys": [
+        "policy",
+        "return"
+      ]
+    },
+    "long-task": {
+      "passed": true,
+      "output_keys": [
+        "initially_blocked",
+        "calls",
+        "simulated_delays",
+        "ready_after_reopen",
+        "memory",
+        "tasks"
+      ]
+    },
+    "background": {
+      "passed": true,
+      "output_keys": [
+        "before",
+        "other_input",
+        "cancel",
+        "after",
+        "ticks",
+        "pending_before_cancel",
+        "after_cancel"
+      ]
+    },
+    "delegation": {
+      "passed": true,
+      "output_keys": [
+        "mode",
+        "baseline",
+        "delegated"
+      ]
+    },
+    "team": {
+      "passed": true,
+      "output_keys": [
+        "tasks",
+        "protocol_finished",
+        "requests",
+        "mode"
+      ]
+    }
+  },
+  "new_documents_checked": 15,
+  "external_services_not_run": [
+    "real chat model",
+    "vector model download",
+    "PostgreSQL server"
+  ],
+  "scope": "Offline mechanism verification, not live model quality evaluation",
+  "archive_extracted_tests_passed": 21,
+  "markdown_articles_parsed": 10,
+  "source_excerpts_checked": 110,
+  "usage_or_design_blocks_checked": 52,
+  "editorial_revision": "2026-10-23: expanded 23—32 with state walkthroughs, failure timelines, input/output contracts and delegation analysis"
+}
