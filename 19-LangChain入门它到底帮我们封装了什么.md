@@ -8,6 +8,16 @@
 
 这个定义仍然有些抽象。下面只做一次退款查询：先看普通函数能完成什么，再手写模型与函数之间的往返，最后把同一段往返交给LangChain。每一步都围绕A1001，不再中途扩展成另一个应用。
 
+本文配套代码已放在[GitHub仓库](https://github.com/benx92/ai-learning-notes)，示例集中在[`examples/19-langchain`](https://github.com/benx92/ai-learning-notes/tree/main/examples/19-langchain)。阅读时可以同时打开下面三个入口：
+
+| 入口 | 与正文的对应关系 |
+| --- | --- |
+| [comparison_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/comparison_demo.py) | 单工具主实验，包含业务函数、固定响应、手写循环、框架循环和启动入口 |
+| [two_tools_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/two_tools_demo.py) | 追加物流查询，核对增加一个工具需要修改哪些地方 |
+| [README与运行说明](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/README.md) | 安装依赖、运行命令、测试和可选在线练习 |
+
+正文按执行顺序拆开讲解，实际运行使用仓库中的完整文件；下面的片段都摘自对应源码。
+
 ## LangChain处在应用的哪里，解决哪类问题
 
 先把“模型”和“模型应用”分开。模型接收输入，生成回复；查单应用还要知道当前用户是谁、怎样查询订单、何时继续请求模型，以及怎样把结果展示出来。
@@ -37,6 +47,25 @@ LangChain把其中一部分共性整理出来：组件约定输入输出怎样�
 ## 先确认：普通Python本来就能完成什么
 
 假设我们已经写好了一个函数：传入订单号，返回当前用户可以查看的退款状态。
+
+先看[主实验文件](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/comparison_demo.py)开头的输入和教学数据，避免后面出现尚未定义的变量：
+
+<!-- example-source: examples/19-langchain/comparison_demo.py -->
+
+```python
+import json
+import re
+
+
+QUESTION = "查一下A1001的退款状态。"
+INSTRUCTION = "查询退款状态必须使用工具，不能猜测。"
+ORDERS = {
+    "A1001": {"owner": "demo-user", "status": "审核中"},
+    "A2002": {"owner": "other-user", "status": "已退款"},
+}
+```
+
+`re`用于检查订单号格式，`json`只用于最后打印工具请求。`QUESTION`是一次运行的用户输入，`INSTRUCTION`约束回答方式，`ORDERS`则是查询函数真正读取的数据。`owner`表示订单归属；这里用固定的`demo-user`模拟当前用户，真实应用必须从认证信息取得用户身份。
 
 下面是配套`comparison_demo.py`中的实际业务函数。为方便观察，订单保存在字典里：A1001属于当前教学用户，状态是“审核中”；A2002属于其他人。真实系统可以在这个函数里查询数据库或调用订单服务。
 
@@ -107,24 +136,49 @@ sequenceDiagram
 
 ## 第一版：用普通Python把往返写出来
 
-先把模型回复的形状看清楚。为了让两版程序得到完全相同的条件，配套实验先用一个普通函数`scripted_reply()`返回预先写好的回复：第一次提出查询请求，收到工具结果以后，再把实际结果放进最终回答。它不是大模型，也不理解任意自然语言；这里只用它观察执行顺序。
+手写版先准备一份给回复函数看的工具说明。这份说明来自主实验的`TOOL_SPECS`：
 
-它第一次返回的核心内容如下：
-
-<!-- example-kind: illustration -->
+<!-- example-source: examples/19-langchain/comparison_demo.py -->
 
 ```python
-{
-    "role": "assistant",
-    "content": "",
-    "tool_calls": [{
+TOOL_SPECS = [{
+    "name": "get_refund_status",
+    "description": "查询当前用户订单的退款状态。",
+    "parameters": {
+        "type": "object",
+        "properties": {"order_id": {"type": "string"}},
+        "required": ["order_id"],
+    },
+}]
+```
+
+`name`与实际函数名一致，`description`说明什么时候用它，`parameters`约束参数为包含字符串`order_id`的对象，`required`表示订单号不能省略。它只是说明书，不包含订单数据，也不会执行查询。真正可调用的函数还要在后面的`tools`字典中登记。
+
+先把模型回复的形状看清楚。为了让两版程序得到完全相同的条件，配套实验先用一个普通函数`scripted_reply()`返回预先写好的回复：第一次提出查询请求，收到工具结果以后，再把实际结果放进最终回答。它不是大模型，也不理解任意自然语言；这里只用它观察执行顺序。
+
+下面是完整的固定响应函数：
+
+<!-- example-source: examples/19-langchain/comparison_demo.py -->
+
+```python
+def scripted_reply(messages, tool_specs):
+    """程序写好的两种响应；不是大模型，也不理解用户问题。"""
+    if not any(spec["name"] == "get_refund_status" for spec in tool_specs):
+        raise ValueError("没有提供查询工具说明")
+    results = [m for m in messages if m["role"] == "tool"]
+    if results:
+        return {"role": "assistant", "content": f"A1001的退款状态：{results[-1]['content']}。"}
+    return {"role": "assistant", "content": "", "tool_calls": [{
         "name": "get_refund_status",
         "args": {"order_id": "A1001"},
         "id": "call_comparison_1",
         "type": "tool_call",
-    }],
-}
+    }]}
 ```
+
+第一次调用时，`messages`里没有`role="tool"`的记录，于是走最后一个`return`，提出查询A1001的请求。查询函数执行后，循环会追加一条工具消息；第二次调用时，`results`不再为空，于是读取最后一条工具消息的`content`，生成最终回答。
+
+因此，订单号和调用选择是预设的，查询状态却来自实际函数结果。把`ORDERS["A1001"]["status"]`改为“已退款”，最终回复也应变化。这个实验能验证执行与数据传递，不能验证模型是否理解了任意订单号或用户问法。
 
 读这几个字段就够了：`name`告诉程序调用谁，`args`给出订单号，`id`让程序把结果与这次请求对应起来。`tool_calls`表示这一轮提出的工具请求列表。
 
@@ -226,12 +280,99 @@ def run_langchain(model):
 
 这才是本次对比要观察的变化：**程序员提供业务函数与配置，LangChain复用了一段通用执行逻辑。**两版同样使用Python，区别是这段逻辑由谁维护。
 
+**同一个固定响应函数怎样接进框架？**
+
+手写版可以直接调用`scripted_reply(messages, TOOL_SPECS)`，框架需要的则是聊天模型对象。主实验里的`make_scripted_model()`补上这层格式转换：
+
+<!-- example-source: examples/19-langchain/comparison_demo.py -->
+
+```python
+def make_scripted_model(reply_function=scripted_reply):
+    """把同一个scripted_reply接到框架模型接口，不在适配器里执行工具。"""
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+    from langchain_core.utils.function_calling import convert_to_openai_tool
+    from pydantic import Field
+
+    class ComparisonModel(BaseChatModel):
+        specs: list = Field(default_factory=list)
+
+        @property
+        def _llm_type(self):
+            return "comparison-fixed-responses"
+
+        def bind_tools(self, tools, **kwargs):
+            specs = [convert_to_openai_tool(t)["function"] for t in tools]
+            return self.model_copy(update={"specs": specs})
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            roles = {"human": "user", "ai": "assistant"}
+            plain = [{"role": roles.get(m.type, m.type), "content": m.content}
+                     for m in messages]
+            reply = reply_function(plain, self.specs)
+            message = AIMessage(content=reply["content"], tool_calls=reply.get("tool_calls", []))
+            return ChatResult(generations=[ChatGeneration(message=message)])
+
+    return ComparisonModel()
+```
+
+按数据流看，这个适配器只做四件事：
+
+1. `ComparisonModel`继承`BaseChatModel`，让框架能按聊天模型接口使用它；`_llm_type`提供实现标识。
+2. `bind_tools()`接收框架整理的工具，用`convert_to_openai_tool()`提取函数说明，保存在返回的模型副本中。这里借用转换函数整理数据，不会请求OpenAI服务。`Field(default_factory=list)`为每个实例创建独立的说明列表。
+3. `_generate()`把框架消息对象转换为固定响应函数认识的字典。框架里的`human`对应`user`，`ai`对应`assistant`，`tool`仍然表示工具结果。
+4. 调用同一个`reply_function()`后，把返回字典包装成`AIMessage`，再用`ChatGeneration`和`ChatResult`返回给框架。`tool_calls`随消息一起交回Agent。
+
+注意，这里面没有调用`get_refund_status()`。它只产生或转换消息，真正的工具执行留给Agent。这样两版比较的才是同一响应条件下，手写程序与框架分别怎样安排查询。
+
+这是为了离线对照额外写的测试适配器。日常接入已有模型集成时，一般直接创建对应的模型客户端，不需要为每个业务写一个自定义聊天模型类。
+
 ## 实际运行后，怎样确认框架真的做了这些事
 
-配套目录里的`comparison_demo.py`可以一次运行两版。安装与完整命令见[示例README](examples/19-langchain/README.md)。如果已经安装示例所需的依赖，在该目录运行：
+先取得完整仓库。下面命令适用于尚未下载仓库的读者，在准备保存项目的目录执行：
 
 ```powershell
-python comparison_demo.py
+git clone https://github.com/benx92/ai-learning-notes.git
+cd ai-learning-notes
+```
+
+已有仓库的读者直接进入自己的仓库根目录，不必再次克隆。然后进入示例目录，用Python 3.12创建独立环境并运行：
+
+```powershell
+cd examples/19-langchain
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe comparison_demo.py
+```
+
+示例固定的直接依赖是`langchain==1.4.6`、`langchain-core==1.6.10`和`langchain-deepseek==1.1.1`，详见[requirements.txt](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/requirements.txt)。主对比实验不需要API Key，也不会请求聊天模型服务；第一次安装依赖需要网络。使用虚拟环境内Python的完整路径，不需要先执行环境激活脚本。
+
+运行脚本时，文件底部的入口会调用`main()`，其中真正启动两条路径的是这两行：
+
+<!-- example-source: examples/19-langchain/comparison_demo.py -->
+
+```python
+    python_messages = run_python(scripted_reply)
+    framework_messages = run_langchain(make_scripted_model())
+```
+
+第一行把普通函数传给手写循环；第二行先创建模型适配器，再交给LangChain循环。后面的打印代码遍历两份消息记录。只定义`run_python()`或`run_langchain()`不会自动发生查询，必须有这一步调用。
+
+这份脚本的实际输出如下，空的`[]`表示该条消息没有工具请求：
+
+```text
+固定响应只用来比较执行过程，不验证自然语言理解。
+手写Python版：
+user 查一下A1001的退款状态。 []
+assistant  [{"name": "get_refund_status", "args": {"order_id": "A1001"}, "id": "call_comparison_1", "type": "tool_call"}]
+tool 审核中 []
+assistant A1001的退款状态：审核中。 []
+LangChain版：
+human 查一下A1001的退款状态。 []
+ai  [{"name": "get_refund_status", "args": {"order_id": "A1001"}, "id": "call_comparison_1", "type": "tool_call"}]
+tool 审核中 []
+ai A1001的退款状态：审核中。 []
 ```
 
 两版都应经过下面四条记录。输出中的角色名称略有不同，但表示同样的过程：
@@ -245,9 +386,27 @@ python comparison_demo.py
 
 不要只比较最后一句话。真正值得检查的是：中间有没有查询请求，有没有执行函数，有没有把真实函数返回值交回去。
 
-配套检查还会把底层状态改成“已退款”，验证两版回复都随之变化；把订单改成属于他人时，两版都应返回不可查看的结果。这样可以确认最终内容来自函数结果，而不是在演示里始终写死“审核中”。
+可以继续在同一示例目录运行测试：
 
-这个离线实验验证的是两种程序怎样组织执行。真实模型能否从不同问法中选对工具，需要再接入模型服务检查；已有`agent_demo.py`保留了在线练习。固定响应的适配代码、依赖版本和运行细节集中放在[扩展说明](supplements/19-LangChain组件与接口扩展.md)。
+```powershell
+.\.venv\Scripts\python.exe -m unittest -v
+```
+
+[对比测试源码](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/test_comparison.py)会把底层状态改成“已退款”，验证两版回复都随之变化；把订单改成属于他人时，两版都应返回不可查看的结果。这样可以确认最终内容来自函数结果，而不是在演示里始终写死“审核中”。
+
+这个离线实验验证的是两种程序怎样组织执行。真实模型能否从不同问法中选对工具，需要再接入模型服务检查。[在线示例agent_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/agent_demo.py)使用`ChatDeepSeek`连接模型，把实际模型对象交给`build_agent()`，再执行`agent.invoke()`。它使用[extensions/components_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/extensions/components_demo.py)中已封装的查询工具，数据仍是教学快照。
+
+如果已有可用的DeepSeek账户，在同一个PowerShell窗口和示例目录设置自己的参数，再运行在线脚本：
+
+```powershell
+$env:DEEPSEEK_API_KEY = "填写自己的密钥"
+$env:LC_CHAT_MODEL = "填写账户可用且支持工具调用的模型名"
+.\.venv\Scripts\python.exe agent_demo.py
+```
+
+这个脚本读取进程环境变量，不自动加载`.env`。在线调用会使用账户额度，最终措辞也可能不同；检查重点仍是工具请求、实际结果与最终回答是否对应。当前核验使用固定响应运行真实框架，没有使用真实密钥验证在线回答效果。
+
+更多组件与接口细节见[扩展说明](https://github.com/benx92/ai-learning-notes/blob/main/supplements/19-LangChain组件与接口扩展.md)。
 
 ## 从这次查单看清：封装到底落在哪里
 
@@ -269,7 +428,7 @@ LangChain版接收`tools=[get_refund_status]`，从函数名、说明文字和�
 
 ## 如果再加一个查询函数，需要改哪里
 
-现在用户又提出一个需求：“查一下A1001的物流状态。”我们保留原来的退款查询，再增加物流查询。完整实现放在`two_tools_demo.py`，下面按实际修改位置对照。
+现在用户又提出一个需求：“查一下A1001的物流状态。”我们保留原来的退款查询，再增加物流查询。完整实现放在[two_tools_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/two_tools_demo.py)，下面按实际修改位置对照。
 
 **第一步：两版都要新增物流查询函数。**
 
@@ -376,7 +535,7 @@ def run_langchain(model, question=QUESTION):
 安装示例所需的依赖后，在示例目录运行：
 
 ```powershell
-python two_tools_demo.py
+.\.venv\Scripts\python.exe two_tools_demo.py
 ```
 
 物流查询的执行记录应依次是：

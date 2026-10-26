@@ -4,7 +4,7 @@
 
 ## 主实验：怎样保证两种写法比较的是同一件事
 
-正文新增`examples/19-langchain/comparison_demo.py`，原有组件实验保留。
+正文主实验是`examples/19-langchain/comparison_demo.py`，可选组件实验集中在同目录的`extensions/`，不与正文入口混放。
 
 - `get_refund_status()`是两版共用的普通业务函数，读取同一份教学订单并检查归属。
 - `scripted_reply()`是两版共用的预设回复逻辑。没有工具结果时，提出查询A1001；有工具结果时，读取结果组成回答。它不调用业务函数，也不理解自然语言。
@@ -12,7 +12,7 @@
 - `run_langchain()`使用真实`create_agent()`，直接登记相同的普通函数，由框架整理工具说明并执行循环。
 - `make_scripted_model()`把相同的预设回复逻辑适配成框架模型对象。它只转换消息与工具说明，未把执行工具、回填结果或继续运行的逻辑藏进适配层。
 
-主实验刻意固定两边的模型回复，比较执行程序的职责变化。手写版的`TOOL_SPECS`是实验内部格式，真实接入时需按供应商接口实现模型请求与格式转换。框架版的在线请求可参考原有`agent_demo.py`；主实验未实现在线手写适配器。
+主实验刻意固定两边的模型回复，比较执行程序的职责变化。手写版的`TOOL_SPECS`是实验内部格式，真实接入时需按供应商接口实现模型请求与格式转换。框架版的在线请求可参考`agent_demo.py`；主实验未实现在线手写适配器。
 
 `test_comparison.py`增加两项差异验证：改变A1001状态，确认两版结果随之变化；改变订单归属，确认两版均保留访问检查。请求ID与工具结果配对也一并核对。安装和执行命令见[示例README](../examples/19-langchain/README.md)。
 
@@ -220,9 +220,9 @@ py -3.12 -m venv .venv
 
 `pip`用于安装包，`import`用于在代码中使用模块，两者的名字不一定相同。例如安装名为`langchain-core`，导入路径是`langchain_core`；`langchain-deepseek`对应`langchain_deepseek`。名称中的连字符与下划线不要混用。
 
-把下面完整代码保存为 `components_demo.py`：
+下面是`extensions/components_demo.py`的完整代码；文件已在仓库中，直接运行即可：
 
-<!-- example-source: examples/19-langchain/components_demo.py -->
+<!-- example-source: examples/19-langchain/extensions/components_demo.py -->
 
 ```python
 import json
@@ -306,7 +306,7 @@ if __name__ == "__main__":
 运行：
 
 ```powershell
-.\.venv\Scripts\python.exe components_demo.py
+.\.venv\Scripts\python.exe -m extensions.components_demo
 ```
 
 本次实际输出为：
@@ -343,7 +343,7 @@ ToolMessage call_demo_1 {"ok": true, "order_id": "A1001", "status": "审核中"}
 
 这张表也解释了为什么“少写了循环代码”不等于“少写了业务检查”。框架知道怎样转交一次工具请求，工具才知道当前用户能否读取这笔订单。
 
-下面用相同的查询工具，说明这些配置怎样落到代码。将完整内容保存为与 `components_demo.py`同目录的 `agent_demo.py`：
+下面用相同的查询工具，说明这些配置怎样落到代码。在线入口保留在示例根目录的`agent_demo.py`，从`extensions`导入组件实验的查询工具：
 
 <!-- example-source: examples/19-langchain/agent_demo.py -->
 
@@ -354,7 +354,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware, ToolCallLimitMiddleware
 from langchain_deepseek import ChatDeepSeek
 
-from components_demo import get_refund_status
+from extensions.components_demo import get_refund_status
 
 
 def build_agent(model):
@@ -400,7 +400,7 @@ if __name__ == "__main__":
 
 这里有两个对象：`model`负责调用具体模型服务，`agent`负责围绕这个模型组织执行。把工具放进`tools`列表，是告诉Agent有哪些入口可以调度，不是在创建对象时就查询订单。
 
-`from components_demo import get_refund_status`从同目录文件取得已经定义的工具。由于组件脚本用`if __name__ == "__main__"`保护演示入口，导入工具时不会顺便打印模板或执行那条固定查询。
+`from extensions.components_demo import get_refund_status`从`extensions/components_demo.py`取得已经定义的工具。由于组件脚本用`if __name__ == "__main__"`保护演示入口，导入工具时不会顺便打印模板或执行那条固定查询。
 
 在线Agent只使用退款状态查询工具，没有使用组件脚本里的政策模板。这样能够单独观察“用户自然语言怎样变成一次工具请求”，避免把文档问答与订单查询的流程混在一起。
 
@@ -482,7 +482,7 @@ flowchart TD
 
 配套测试使用真实LangChain组件与Agent执行程序，把聊天模型换成返回固定请求的测试对象。它不是本地大模型，也不理解自然语言，只为稳定检查调度过程。
 
-本次8项检查已通过，覆盖以下内容：
+扩展测试位于`extensions/test_examples.py`，包含以下8项检查；正文主实验和双工具实验另有4项检查：
 
 | 检查对象 | 实际核对的行为 |
 | --- | --- |

@@ -10,7 +10,7 @@
 | 16 MCP | [16-mcp](16-mcp/README.md) | `server.py`提供能力；`client.py`和`http_client.py`通信；`bridge_demo.py`演示固定请求桥接 |
 | 17 Agent | [15-tool-calling](15-tool-calling/README.md) | 复用查询循环和申请业务服务；详情查询、追问状态和完整在线申请Agent仍是设计说明 |
 | 18 安全护栏 | [18-guardrails](18-guardrails/README.md)、[15-tool-calling](15-tool-calling/README.md) | 确认、名称拦截、重试与限额的独立包装实验；申请服务保留业务检查，未实现完整持久审批Agent |
-| 19 LangChain | [19-langchain](19-langchain/README.md) | `reading_demo.py`消息；`components_demo.py`工具；`offline_agent_demo.py`观察真实框架循环；`agent_demo.py`可选接入在线模型 |
+| 19 LangChain | [19-langchain](19-langchain/README.md) | `comparison_demo.py`对比手写与框架循环；`two_tools_demo.py`扩展物流；`agent_demo.py`可选在线调用；组件补充见`extensions/` |
 | 20 LangChain处理步骤的组合 | [20-lcel](20-lcel/README.md) | `chain_demo.py`观察顺序链、输入整理、并行映射、分支与流式；`reliability_demo.py`观察有限重试与失败回退 |
 | 21 结构化输出 | [21-structured-output](21-structured-output/README.md) | `validation_demo.py`区分语法与Schema；`extract_demo.py`观察结构化调用、校验与草稿判断；`agent_demo.py`对照最终结构字段 |
 | 22 Memory | [22-memory](22-memory/README.md) | 对照手工历史与检查点，验证跨进程恢复、状态注入、跨会话偏好及摘要触发 |

@@ -4,7 +4,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware, ToolCallLimitMiddleware
 from langchain_deepseek import ChatDeepSeek
 
-from components_demo import get_refund_status
+from extensions.components_demo import get_refund_status
 
 
 def build_agent(model):

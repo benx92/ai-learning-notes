@@ -8,8 +8,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import ValidationError
 
 from agent_demo import build_agent
-from components_demo import get_refund_status
-from offline_agent_demo import ScriptedModel
+from extensions.components_demo import get_refund_status
+from extensions.offline_agent_demo import ScriptedModel
 
 
 class ExamplesTest(unittest.TestCase):
