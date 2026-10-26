@@ -13,7 +13,9 @@
 | `test_two_tools.py` | 双工具2项检查：退款与物流分发、结果变化、参数与访问检查 |
 | `requirements.txt` | 固定直接依赖版本 |
 
-主实验阅读顺序：输入与`ORDERS` → `get_refund_status()` → `TOOL_SPECS`与`scripted_reply()` → `run_python()` → `run_langchain()`与`make_scripted_model()` → `main()`。
+先看主实验的`get_refund_status()`，然后直接对照`run_python()`与`run_langchain()`中的步骤注释：手写版自己维护步骤1—6，框架版登记模型与函数，再由`invoke()`启动框架执行。`tools=[get_refund_status]`传函数本身，此时不执行查询。
+
+理解两版区别以后，再看`scripted_reply()`和`make_scripted_model()`如何提供相同的离线响应，最后看`main()`怎样启动两条路径。这两个辅助函数是实验需要，不是接入在线模型必须编写的代码。在线使用流程见`agent_demo.py`中步骤1—5的注释。
 
 `scripted_reply()`产生预设请求或读取工具结果，不执行查询；`make_scripted_model()`只转换消息与工具说明。实际查询分别由手写循环和框架执行。固定响应不具备自然语言理解能力。
 

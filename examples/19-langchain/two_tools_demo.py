@@ -14,6 +14,7 @@ SHIPPING = {"A1001": "运输中，已到达杭州转运中心"}
 
 def get_shipping_status(order_id: str) -> str:
     """查询当前用户订单的物流状态。"""
+    # 【两版都要新增】框架不替我们实现物流查询及订单归属检查。
     if not isinstance(order_id, str) or not re.fullmatch(r"A[0-9]{4}", order_id):
         raise ValueError("订单号格式应为A加4位数字")
     order = ORDERS.get(order_id)
@@ -22,6 +23,7 @@ def get_shipping_status(order_id: str) -> str:
     return SHIPPING.get(order_id, "暂无物流记录")
 
 
+# 【手写版新增登记1】告诉回复函数：现在还可以请求物流工具。
 TOOL_SPECS = REFUND_TOOL_SPECS + [{
     "name": "get_shipping_status",
     "description": "查询当前用户订单的物流状态。",
@@ -56,28 +58,35 @@ def scripted_reply(messages, tool_specs):
 
 
 def run_python(call_model, question=QUESTION):
+    # 步骤1：准备消息；与单工具版相比，问题和处理要求覆盖两种查询。
     messages = [
         {"role": "system", "content": INSTRUCTION},
         {"role": "user", "content": question},
     ]
+    # 【手写版新增登记2】让执行程序按工具名找到物流函数。
     tools = {
         "get_refund_status": get_refund_status,
         "get_shipping_status": get_shipping_status,
     }
     for _ in range(3):
+        # 步骤2：取得回复；工具增加了，这个执行循环仍然复用。
         reply = call_model(messages, TOOL_SPECS)
         messages.append(reply)
+        # 步骤3：检查工具请求，没有请求就结束。
         requests = reply.get("tool_calls", [])
         if not requests:
             return messages
         for request in requests:
+            # 步骤4：请求哪个名字，就执行查找表中的哪个函数。
             function = tools[request["name"]]
             result = function(**request["args"])
+            # 步骤5：回填结果，并配对调用ID。
             messages.append({
                 "role": "tool",
                 "content": result,
                 "tool_call_id": request["id"],
             })
+        # 步骤6：继续请求模型，让它读到刚才的工具结果。
     raise RuntimeError("达到3次模型调用上限")
 
 
@@ -85,12 +94,15 @@ def run_langchain(model, question=QUESTION):
     from langchain.agents import create_agent
     from langchain.agents.middleware import ModelCallLimitMiddleware
 
+    # 步骤1：登记模型、工具和要求；此时不执行查询。
     agent = create_agent(
         model=model,
+        # 【框架版新增登记】追加物流函数，工具说明与函数查找由框架组织。
         tools=[get_refund_status, get_shipping_status],
         system_prompt=INSTRUCTION,
         middleware=[ModelCallLimitMiddleware(run_limit=3, exit_behavior="error")],
     )
+    # 步骤2—6：沿用框架循环；无需为物流查询另写分发、回填和再次调用。
     result = agent.invoke({
         "messages": [{"role": "user", "content": question}],
     })

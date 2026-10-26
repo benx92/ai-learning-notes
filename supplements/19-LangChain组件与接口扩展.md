@@ -20,6 +20,57 @@
 
 以下内容是可选组件实验，未与主实验自动组合为一个完整应用。代码片段可能是类方法或依赖其他函数的摘录；运行时使用对应完整脚本。
 
+## 离线实验：固定回复怎样接进框架
+
+手写版可以直接调用`scripted_reply(messages, TOOL_SPECS)`，框架需要的则是聊天模型对象。主实验里的`make_scripted_model()`补上这层格式转换：
+
+<!-- example-source: examples/19-langchain/comparison_demo.py -->
+
+```python
+def make_scripted_model(reply_function=scripted_reply):
+    """把同一个scripted_reply接到框架模型接口，不在适配器里执行工具。"""
+    # 【离线实验辅助】让两版收到相同回复；使用已有在线模型客户端时不需要写这个适配器。
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+    from langchain_core.utils.function_calling import convert_to_openai_tool
+    from pydantic import Field
+
+    class ComparisonModel(BaseChatModel):
+        specs: list = Field(default_factory=list)
+
+        @property
+        def _llm_type(self):
+            return "comparison-fixed-responses"
+
+        def bind_tools(self, tools, **kwargs):
+            # 只保存给回复函数看的工具说明，不执行工具。
+            specs = [convert_to_openai_tool(t)["function"] for t in tools]
+            return self.model_copy(update={"specs": specs})
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            # 把框架消息转成固定响应函数认识的格式，再把响应包装成框架消息。
+            roles = {"human": "user", "ai": "assistant"}
+            plain = [{"role": roles.get(m.type, m.type), "content": m.content}
+                     for m in messages]
+            reply = reply_function(plain, self.specs)
+            message = AIMessage(content=reply["content"], tool_calls=reply.get("tool_calls", []))
+            return ChatResult(generations=[ChatGeneration(message=message)])
+
+    return ComparisonModel()
+```
+
+按数据流看，这个适配器只做四件事：
+
+1. `ComparisonModel`继承`BaseChatModel`，让框架能按聊天模型接口使用它；`_llm_type`提供实现标识。
+2. `bind_tools()`接收框架整理的工具，用`convert_to_openai_tool()`提取函数说明，保存在返回的模型副本中。这里借用转换函数整理数据，不会请求OpenAI服务。`Field(default_factory=list)`为每个实例创建独立的说明列表。
+3. `_generate()`把框架消息对象转换为固定响应函数认识的字典。框架里的`human`对应`user`，`ai`对应`assistant`，`tool`仍然表示工具结果。
+4. 调用同一个`reply_function()`后，把返回字典包装成`AIMessage`，再用`ChatGeneration`和`ChatResult`返回给框架。`tool_calls`随消息一起交回Agent。
+
+注意，这里面没有调用`get_refund_status()`。它只产生或转换消息，真正的工具执行留给Agent。这样两版比较的才是同一响应条件下，手写程序与框架分别怎样安排查询。
+
+这是为了离线对照额外写的测试适配器。日常接入已有模型集成时，一般直接创建对应的模型客户端，不需要为每个业务写一个自定义聊天模型类。
+
 ## 模型与消息：统一的是调用方式，不是模型能力
 
 直接请求聊天接口时，应用常见的输入是角色与内容组成的消息列表，输出则包含回答、工具请求和用量等信息。LangChain把这些内容放进模型对象与消息对象中。
@@ -354,12 +405,15 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware, ToolCallLimitMiddleware
 from langchain_deepseek import ChatDeepSeek
 
+# 使用扩展实验中已封装的只读工具；业务检查在工具内部，返回JSON字符串。
 from extensions.components_demo import get_refund_status
 
 
 def build_agent(model):
+    # 步骤3：组装执行对象；这一步登记工具，还没有开始查询。
     return create_agent(
         model=model,
+        # 传工具对象本身，Agent收到模型请求后才会调用它。
         tools=[get_refund_status],
         system_prompt=(
             "你是教学售后助手。查询具体订单状态必须使用工具，不得猜测。"
@@ -367,6 +421,7 @@ def build_agent(model):
             "结果是虚构教学数据，不代表真实订单。你不能提交或批准申请。"
         ),
         middleware=[
+            # 最多3次模型调用、2次工具调用；超限停止并报错。
             ModelCallLimitMiddleware(run_limit=3, exit_behavior="error"),
             ToolCallLimitMiddleware(run_limit=2, exit_behavior="error"),
         ],
@@ -374,8 +429,11 @@ def build_agent(model):
 
 
 def main():
+    # 步骤1：检查运行配置；密钥来自环境变量，不写进源码。
     if not os.environ.get("DEEPSEEK_API_KEY") or not os.environ.get("LC_CHAT_MODEL"):
         raise RuntimeError("请先设置自己的DEEPSEEK_API_KEY和可用的LC_CHAT_MODEL")
+    # 步骤2：创建在线模型客户端，替代离线实验的固定响应与适配器。
+    # 构造客户端不等于已经发送聊天请求；真正请求发生在下面invoke运行过程中。
     model = ChatDeepSeek(
         model=os.environ["LC_CHAT_MODEL"],
         timeout=45,
@@ -383,9 +441,11 @@ def main():
         extra_body={"thinking": {"type": "disabled"}},
     )
     agent = build_agent(model)
+    # 步骤4：交给Agent运行“模型请求 -> 执行工具 -> 回传结果 -> 再请求模型”的循环。
     result = agent.invoke({
         "messages": [{"role": "user", "content": "查一下A1001的退款状态。"}],
     })
+    # 步骤5：查看完整消息，确认工具是否执行、结果是否交回，最后再看最终回答。
     for message in result["messages"]:
         print(type(message).__name__, message.content)
         if getattr(message, "tool_calls", None):

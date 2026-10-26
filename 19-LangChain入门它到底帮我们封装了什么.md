@@ -6,7 +6,18 @@
 
 **LangChain是用于构建大模型应用的开源框架，本文使用它的Python实现。它提供模型连接、交互数据表示和通用执行流程等可复用的实现，帮助开发者把模型与自己的程序接起来。**[官方定位](https://docs.langchain.com/oss/python/langchain/overview)
 
-这个定义仍然有些抽象。下面只做一次退款查询：先看普通函数能完成什么，再手写模型与函数之间的往返，最后把同一段往返交给LangChain。每一步都围绕A1001，不再中途扩展成另一个应用。
+这个定义仍然有些抽象。下面只做一次退款查询：先看普通函数能完成什么，再手写模型与函数之间的往返，最后把同一段往返交给LangChain。每一步都围绕A1001。
+
+**先抓住代码上的区别：两版共用同一个查询函数。手写版自己维护“请求模型、检查工具请求、执行函数、回传结果、继续调用”的循环；LangChain版提供模型和函数列表，由Agent组织这段循环。**
+
+| 阅读时先分清的代码 | 负责什么 | 实际开发时怎样使用 |
+| --- | --- | --- |
+| `get_refund_status()` | 校验并读取真实业务数据 | 两版都需要自己提供 |
+| `run_python()` | 手动安排模型与工具往返 | 自己维护执行循环 |
+| `run_langchain()` | 创建Agent并启动框架循环 | 配置模型、工具和要求，再执行`invoke()` |
+| `scripted_reply()`、`make_scripted_model()` | 给离线对比提供相同的预设回复 | 它们是实验辅助；接入现成的在线模型客户端时通常不需要写 |
+
+下面代码里的“步骤1—6”会标出同一段工作的对应位置。先比较两种执行函数，再看实验辅助怎样让代码离线运行。
 
 本文配套代码已放在[GitHub仓库](https://github.com/benx92/ai-learning-notes)，示例集中在[`examples/19-langchain`](https://github.com/benx92/ai-learning-notes/tree/main/examples/19-langchain)。阅读时可以同时打开下面三个入口：
 
@@ -74,6 +85,7 @@ ORDERS = {
 ```python
 def get_refund_status(order_id: str) -> str:
     """查询当前用户订单的退款状态。"""
+    # 【两版共用的业务代码】格式检查、归属检查和查询规则仍由开发者实现。
     if not isinstance(order_id, str) or not re.fullmatch(r"A[0-9]{4}", order_id):
         raise ValueError("订单号格式应为A加4位数字")
     order = ORDERS.get(order_id)
@@ -132,6 +144,8 @@ sequenceDiagram
 
 这里把“模型可以请求程序使用的函数入口”称为 **Tool（工具）**，把“模型提出动作、程序执行并反馈、再继续判断”的整段循环称为 **Agent**。当前例子只有一个工具，循环很短；同一机制也可以支持多个工具和更多次往返。
 
+一次查询成功时，模型通常参与两轮：第一轮提出工具请求，第二轮读取实际查询结果形成回答。只有中间的Python函数真正读取订单数据。
+
 **LangChain在这个例子里的作用，就是提供运行这段循环的现成实现。**业务函数仍然由我们提供，模型服务仍然需要接入。[Agent官方说明](https://docs.langchain.com/oss/python/langchain/agents)
 
 ## 第一版：用普通Python把往返写出来
@@ -163,11 +177,14 @@ TOOL_SPECS = [{
 ```python
 def scripted_reply(messages, tool_specs):
     """程序写好的两种响应；不是大模型，也不理解用户问题。"""
+    # 【离线实验辅助】只返回请求或回答，真正的订单查询由外部执行循环完成。
     if not any(spec["name"] == "get_refund_status" for spec in tool_specs):
         raise ValueError("没有提供查询工具说明")
     results = [m for m in messages if m["role"] == "tool"]
     if results:
+        # 第二轮：读取执行循环传回的实际结果，不把“审核中”写死在回答中。
         return {"role": "assistant", "content": f"A1001的退款状态：{results[-1]['content']}。"}
+    # 第一轮：只提出“请查A1001”的请求，此时尚未执行查询函数。
     return {"role": "assistant", "content": "", "tool_calls": [{
         "name": "get_refund_status",
         "args": {"order_id": "A1001"},
@@ -188,35 +205,38 @@ def scripted_reply(messages, tool_specs):
 
 ```python
 def run_python(call_model):
+    # 步骤1：自己准备消息，以及“工具名 -> 实际函数”的查找表。
     messages = [
         {"role": "system", "content": INSTRUCTION},
         {"role": "user", "content": QUESTION},
     ]
     tools = {"get_refund_status": get_refund_status}
+    # 自己维护执行循环，最多允许3次模型调用。
     for _ in range(3):
+        # 步骤2：取得一轮模型回复；离线时call_model就是scripted_reply。
         reply = call_model(messages, TOOL_SPECS)
         messages.append(reply)
+        # 步骤3：自己检查是否请求工具；没有请求时，返回最终消息记录。
         requests = reply.get("tool_calls", [])
         if not requests:
             return messages
         for request in requests:
+            # 步骤4：自己找函数并执行；本例相当于get_refund_status(order_id="A1001")。
             function = tools[request["name"]]
             result = function(**request["args"])
+            # 步骤5：自己把结果放回消息，用请求ID标明它回答的是哪次调用。
             messages.append({
                 "role": "tool",
                 "content": result,
                 "tool_call_id": request["id"],
             })
+        # 步骤6：进入下一轮循环，让模型读取工具结果，再判断是否继续。
     raise RuntimeError("达到3次模型调用上限")
 ```
 
-按一次查单的顺序读这段代码：
+按代码里的六个步骤走一遍：先准备消息和工具查找表；取得第一轮回复；发现工具请求；执行`get_refund_status(order_id="A1001")`；把“审核中”写成带请求ID的工具消息；进入第二轮，让回复函数读取结果并生成最终回答。
 
-1. `messages`先保存要求和用户问题。`INSTRUCTION`是“查询退款状态必须使用工具，不能猜测”，`QUESTION`是“查一下A1001的退款状态”。
-2. `call_model(messages, TOOL_SPECS)`取得一轮回复。`TOOL_SPECS`说明查询函数叫什么、做什么、需要一个字符串订单号。在这个离线实验中，`call_model`传入的就是刚才的`scripted_reply`。
-3. 回复有工具请求，就从`tools`字典找到对应Python函数，把请求参数交给它执行。`**request["args"]`在此相当于传入`order_id="A1001"`。
-4. 把函数返回的“审核中”追加到`messages`，并带上对应的请求ID。
-5. 进入下一轮，把包含查询结果的消息再交给回复函数。收到没有工具请求的最终回复，就返回。
+其中`**request["args"]`是在展开参数字典。请求参数为`{"order_id": "A1001"}`时，这一行就相当于调用`function(order_id="A1001")`；具体是哪一个函数，由上一行的工具名查找决定。
 
 这里的`messages`是按顺序保存本次交互内容的列表。每条记录有`role`和`content`：`system`是给模型的处理要求，`user`是用户的话，`assistant`是模型回复，`tool`是程序执行函数后的结果。这里的系统要求与用户问题一起构成本轮交给模型的提示内容。
 
@@ -239,19 +259,25 @@ def run_langchain(model):
     from langchain.agents import create_agent
     from langchain.agents.middleware import ModelCallLimitMiddleware
 
+    # 步骤1：提供模型、业务函数和要求；创建Agent时还没有执行订单查询。
     agent = create_agent(
         model=model,
+        # 传函数本身，不写get_refund_status("A1001")；参数稍后由工具请求提供。
         tools=[get_refund_status],
         system_prompt=INSTRUCTION,
+        # 对应手写版的range(3)：限制本次运行最多调用模型3次。
         middleware=[ModelCallLimitMiddleware(run_limit=3, exit_behavior="error")],
     )
+    # 步骤2—6：invoke启动框架循环，完成模型调用、请求判断、工具执行、结果回填与继续。
+    # 我们不再手写for循环和按名称查找函数的代码，业务函数仍是上面同一个函数。
     result = agent.invoke({
         "messages": [{"role": "user", "content": QUESTION}],
     })
+    # 返回整个过程的消息；最后一条通常是最终回答，中间保留工具请求与结果。
     return result["messages"]
 ```
 
-这段函数来自同一个`comparison_demo.py`。`model`是接到框架接口的模型对象；离线运行时，它读取相同的预设回复。在已有的在线练习里，则使用接到模型服务的对象。
+这段函数来自同一个`comparison_demo.py`。`model`是接到框架接口的模型对象；离线运行时，它读取相同的预设回复。在在线练习里，则使用接到模型服务的对象。两种模型对象都交给Agent使用，业务开发通常使用后者。
 
 先看最关键的三项配置：
 
@@ -267,66 +293,24 @@ def run_langchain(model):
 
 **手写版里的循环、工具查找、结果回填和下一轮调度，在这一版里由框架组织。**所以代码中没有再出现那段`for`循环，但查询过程仍然存在。
 
-两版的对应关系可以直接对上：
+**这几行配置怎样代替手写循环？**
 
-| 需要完成的工作 | 手写Python版 | LangChain版 |
+前面的手写版标了六个步骤。框架版中，步骤1由`create_agent(...)`完成配置，步骤2—6由`agent.invoke(...)`启动框架执行。这里没有省掉实际查询，而是改变了谁负责安排查询。
+
+| 同一步工作 | 手写版在哪里做 | 框架版在哪里做 |
 | --- | --- | --- |
-| 告诉模型有哪些函数可用 | 准备`TOOL_SPECS` | 提供`tools=[get_refund_status]`，框架整理说明 |
-| 检查这一轮是否请求函数 | 读取`tool_calls` | Agent运行程序处理 |
-| 按名称找到函数并执行 | `tools`字典加函数调用 | Agent调度登记的工具 |
-| 回填查询结果并关联请求 | 自己追加带ID的消息 | 框架组织对应工具消息 |
-| 查询后再次请求模型 | 进入下一轮循环 | 框架继续运行 |
-| 查询订单、检查归属 | `get_refund_status()` | 仍是同一个`get_refund_status()` |
+| 步骤1：准备输入与工具 | `messages`、`TOOL_SPECS`、`tools`字典 | `create_agent()`登记工具和要求，`invoke()`接收用户消息 |
+| 步骤2：请求模型 | `call_model(messages, TOOL_SPECS)` | Agent调用传入的`model` |
+| 步骤3：判断是否请求工具 | `reply.get("tool_calls", [])`与`if` | Agent读取模型回复并选择继续或结束 |
+| 步骤4：执行函数 | 查`tools`字典，再`function(**args)` | Agent调度登记的函数 |
+| 步骤5：把结果交回 | 自己追加带`tool_call_id`的工具消息 | Agent组织对应的工具结果消息 |
+| 步骤6：请求下一轮 | 进入下一轮`for` | Agent继续调用模型，直到结束或触发限制 |
 
-这才是本次对比要观察的变化：**程序员提供业务函数与配置，LangChain复用了一段通用执行逻辑。**两版同样使用Python，区别是这段逻辑由谁维护。
+**特别留意`tools=[get_refund_status]`：这里传的是函数本身，没有括号，也没有订单号。**它表示“允许使用这个函数”。如果写成`tools=[get_refund_status("A1001")]`，Python会先执行查询，再把返回的字符串放进列表，这不等于登记一个供Agent调度的函数。
 
-**同一个固定响应函数怎样接进框架？**
+订单号在运行过程中由工具请求提供。离线实验固定为A1001；在线运行则由实际模型根据问题与工具说明提出参数。`create_agent()`负责创建执行对象，`agent.invoke()`才启动处理问题。只创建Agent，不会自动完成一次查询。[工具与Agent用法](https://docs.langchain.com/oss/python/langchain/quickstart)
 
-手写版可以直接调用`scripted_reply(messages, TOOL_SPECS)`，框架需要的则是聊天模型对象。主实验里的`make_scripted_model()`补上这层格式转换：
-
-<!-- example-source: examples/19-langchain/comparison_demo.py -->
-
-```python
-def make_scripted_model(reply_function=scripted_reply):
-    """把同一个scripted_reply接到框架模型接口，不在适配器里执行工具。"""
-    from langchain_core.language_models.chat_models import BaseChatModel
-    from langchain_core.messages import AIMessage
-    from langchain_core.outputs import ChatGeneration, ChatResult
-    from langchain_core.utils.function_calling import convert_to_openai_tool
-    from pydantic import Field
-
-    class ComparisonModel(BaseChatModel):
-        specs: list = Field(default_factory=list)
-
-        @property
-        def _llm_type(self):
-            return "comparison-fixed-responses"
-
-        def bind_tools(self, tools, **kwargs):
-            specs = [convert_to_openai_tool(t)["function"] for t in tools]
-            return self.model_copy(update={"specs": specs})
-
-        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-            roles = {"human": "user", "ai": "assistant"}
-            plain = [{"role": roles.get(m.type, m.type), "content": m.content}
-                     for m in messages]
-            reply = reply_function(plain, self.specs)
-            message = AIMessage(content=reply["content"], tool_calls=reply.get("tool_calls", []))
-            return ChatResult(generations=[ChatGeneration(message=message)])
-
-    return ComparisonModel()
-```
-
-按数据流看，这个适配器只做四件事：
-
-1. `ComparisonModel`继承`BaseChatModel`，让框架能按聊天模型接口使用它；`_llm_type`提供实现标识。
-2. `bind_tools()`接收框架整理的工具，用`convert_to_openai_tool()`提取函数说明，保存在返回的模型副本中。这里借用转换函数整理数据，不会请求OpenAI服务。`Field(default_factory=list)`为每个实例创建独立的说明列表。
-3. `_generate()`把框架消息对象转换为固定响应函数认识的字典。框架里的`human`对应`user`，`ai`对应`assistant`，`tool`仍然表示工具结果。
-4. 调用同一个`reply_function()`后，把返回字典包装成`AIMessage`，再用`ChatGeneration`和`ChatResult`返回给框架。`tool_calls`随消息一起交回Agent。
-
-注意，这里面没有调用`get_refund_status()`。它只产生或转换消息，真正的工具执行留给Agent。这样两版比较的才是同一响应条件下，手写程序与框架分别怎样安排查询。
-
-这是为了离线对照额外写的测试适配器。日常接入已有模型集成时，一般直接创建对应的模型客户端，不需要为每个业务写一个自定义聊天模型类。
+离线实验需要的`make_scripted_model()`只做消息和工具说明的转换，不执行订单查询。它是为了让两版收到相同的固定回复，不是实际应用都要实现的模块；完整带注释代码及逐步解释放在[实验适配说明](https://github.com/benx92/ai-learning-notes/blob/main/supplements/19-LangChain组件与接口扩展.md)，可以在理解主对比后再读。
 
 ## 实际运行后，怎样确认框架真的做了这些事
 
@@ -396,6 +380,41 @@ ai A1001的退款状态：审核中。 []
 
 这个离线实验验证的是两种程序怎样组织执行。真实模型能否从不同问法中选对工具，需要再接入模型服务检查。[在线示例agent_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/agent_demo.py)使用`ChatDeepSeek`连接模型，把实际模型对象交给`build_agent()`，再执行`agent.invoke()`。它使用[extensions/components_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/19-langchain/extensions/components_demo.py)中已封装的查询工具，数据仍是教学快照。
 
+**接入真实模型时，自己的代码到底怎么写？**
+
+在线入口的`build_agent(model)`负责组装模型、查询工具、提示要求和调用限额，作用与前面的`run_langchain()`中创建Agent的部分一致。下面直接摘录`agent_demo.py`的`main()`，按“配置→模型客户端→Agent→运行→查看结果”的顺序阅读：
+
+<!-- example-source: examples/19-langchain/agent_demo.py -->
+
+```python
+def main():
+    # 步骤1：检查运行配置；密钥来自环境变量，不写进源码。
+    if not os.environ.get("DEEPSEEK_API_KEY") or not os.environ.get("LC_CHAT_MODEL"):
+        raise RuntimeError("请先设置自己的DEEPSEEK_API_KEY和可用的LC_CHAT_MODEL")
+    # 步骤2：创建在线模型客户端，替代离线实验的固定响应与适配器。
+    # 构造客户端不等于已经发送聊天请求；真正请求发生在下面invoke运行过程中。
+    model = ChatDeepSeek(
+        model=os.environ["LC_CHAT_MODEL"],
+        timeout=45,
+        max_retries=0,
+        extra_body={"thinking": {"type": "disabled"}},
+    )
+    agent = build_agent(model)
+    # 步骤4：交给Agent运行“模型请求 -> 执行工具 -> 回传结果 -> 再请求模型”的循环。
+    result = agent.invoke({
+        "messages": [{"role": "user", "content": "查一下A1001的退款状态。"}],
+    })
+    # 步骤5：查看完整消息，确认工具是否执行、结果是否交回，最后再看最终回答。
+    for message in result["messages"]:
+        print(type(message).__name__, message.content)
+        if getattr(message, "tool_calls", None):
+            print("工具请求：", message.tool_calls)
+```
+
+这里的`ChatDeepSeek`是已安装集成包提供的模型客户端，认证使用`DEEPSEEK_API_KEY`。`build_agent()`只负责创建执行对象；`agent.invoke()`内部才会实际请求服务，根据模型回复调用工具，并把结果交回。开发者没有再编写工具分发和消息回填循环。
+
+这个在线示例复用的扩展工具返回包含`ok`、`order_id`和`status`等字段的JSON字符串，离线主对比的普通函数返回状态文本；这是工具返回格式的差异，循环分工相同。读者可以先运行离线主对比观察步骤，再用在线入口观察真实模型怎样提出工具请求。
+
 如果已有可用的DeepSeek账户，在同一个PowerShell窗口和示例目录设置自己的参数，再运行在线脚本：
 
 ```powershell
@@ -445,6 +464,7 @@ SHIPPING = {"A1001": "运输中，已到达杭州转运中心"}
 ```python
 def get_shipping_status(order_id: str) -> str:
     """查询当前用户订单的物流状态。"""
+    # 【两版都要新增】框架不替我们实现物流查询及订单归属检查。
     if not isinstance(order_id, str) or not re.fullmatch(r"A[0-9]{4}", order_id):
         raise ValueError("订单号格式应为A加4位数字")
     order = ORDERS.get(order_id)
@@ -482,6 +502,7 @@ TOOL_SPECS = REFUND_TOOL_SPECS + [{
 <!-- example-source: examples/19-langchain/two_tools_demo.py -->
 
 ```python
+    # 手写版需要登记：模型返回工具名后，用这个字典找到实际函数。
     tools = {
         "get_refund_status": get_refund_status,
         "get_shipping_status": get_shipping_status,
@@ -495,6 +516,7 @@ TOOL_SPECS = REFUND_TOOL_SPECS + [{
 <!-- example-source: examples/19-langchain/two_tools_demo.py -->
 
 ```python
+            # 从请求的名称找到函数，参数直接来自请求；物流与退款沿用同一段分发代码。
             function = tools[request["name"]]
             result = function(**request["args"])
 ```
@@ -514,12 +536,15 @@ def run_langchain(model, question=QUESTION):
     from langchain.agents import create_agent
     from langchain.agents.middleware import ModelCallLimitMiddleware
 
+    # 步骤1：登记模型、工具和要求；此时不执行查询。
     agent = create_agent(
         model=model,
+        # 【框架版新增登记】追加物流函数，工具说明与函数查找由框架组织。
         tools=[get_refund_status, get_shipping_status],
         system_prompt=INSTRUCTION,
         middleware=[ModelCallLimitMiddleware(run_limit=3, exit_behavior="error")],
     )
+    # 步骤2—6：沿用框架循环；无需为物流查询另写分发、回填和再次调用。
     result = agent.invoke({
         "messages": [{"role": "user", "content": question}],
     })
