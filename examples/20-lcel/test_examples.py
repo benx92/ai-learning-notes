@@ -13,6 +13,7 @@ from chain_demo import (
     stream_observation,
 )
 from reliability_demo import run_fallback_demo, run_retry_demo
+from basic_demo import answer_question, run_stepwise
 
 
 class ModelCalls(BaseCallbackHandler):
@@ -24,6 +25,27 @@ class ModelCalls(BaseCallbackHandler):
 
 
 class ChainTest(unittest.TestCase):
+    def test_basic_entry_skips_model_for_blank_and_rejects_non_text(self):
+        counter = ModelCalls()
+        model = FakeListChatModel(responses=[FIXED_REPLY], callbacks=[counter])
+        chain = build_basic_chain(model)
+        self.assertEqual(answer_question(chain, POLICIES["member"], "  "), "请先填写政策问题。")
+        with self.assertRaises(TypeError):
+            answer_question(chain, POLICIES["member"], None)
+        self.assertEqual(counter.count, 0)
+        self.assertEqual(answer_question(chain, POLICIES["member"], "  期限？  "), FIXED_REPLY)
+        self.assertEqual(counter.count, 1)
+
+    def test_stepwise_entry_returns_same_plain_text_as_basic_chain(self):
+        counter = ModelCalls()
+        model = FakeListChatModel(responses=[FIXED_REPLY], callbacks=[counter])
+        self.assertEqual(run_stepwise(model, POLICIES["member"], "期限？"), FIXED_REPLY)
+        self.assertEqual(counter.count, 1)
+        self.assertEqual(build_basic_chain(model).invoke({
+            "context": POLICIES["member"], "question": "期限？",
+        }), FIXED_REPLY)
+        self.assertEqual(counter.count, 2)
+
     def test_building_a_chain_does_not_call_model(self):
         counter = ModelCalls()
         model = FakeListChatModel(responses=[FIXED_REPLY], callbacks=[counter])

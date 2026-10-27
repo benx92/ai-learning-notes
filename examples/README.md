@@ -11,7 +11,7 @@
 | 17 Agent | [15-tool-calling](15-tool-calling/README.md) | 复用查询循环和申请业务服务；详情查询、追问状态和完整在线申请Agent仍是设计说明 |
 | 18 安全护栏 | [18-guardrails](18-guardrails/README.md)、[15-tool-calling](15-tool-calling/README.md) | 确认、名称拦截、重试与限额的独立包装实验；申请服务保留业务检查，未实现完整持久审批Agent |
 | 19 LangChain | [19-langchain](19-langchain/README.md) | `comparison_demo.py`对比手写与框架循环；`two_tools_demo.py`扩展物流；`agent_demo.py`可选在线调用；组件补充见`extensions/` |
-| 20 LangChain处理步骤的组合 | [20-lcel](20-lcel/README.md) | `chain_demo.py`观察顺序链、输入整理、并行映射、分支与流式；`reliability_demo.py`观察有限重试与失败回退 |
+| 20 LangChain处理步骤的组合 | [20-lcel](20-lcel/README.md) | `basic_demo.py`先观察一次解释的逐步调用、整链调用与空问题处理；`chain_demo.py`和`reliability_demo.py`保留按需扩展实验 |
 | 21 结构化输出 | [21-structured-output](21-structured-output/README.md) | `validation_demo.py`区分语法与Schema；`extract_demo.py`观察结构化调用、校验与草稿判断；`agent_demo.py`对照最终结构字段 |
 | 22 Memory | [22-memory](22-memory/README.md) | 对照手工历史与检查点，验证跨进程恢复、状态注入、跨会话偏好及摘要触发 |
 | 23—32 | [共享助手与实验](23-32-assistant/README.md) | 图状态、动态派发、持久审批、流式、按需说明、长任务、后台调度、委派、团队协议与完整本地助手；含可选真实模型入口 |

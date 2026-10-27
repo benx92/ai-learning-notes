@@ -18,12 +18,14 @@ GOOD_ARGS = {
 
 
 def tool_reply(args):
+    # 离线辅助：把预设字段放进AIMessage的工具参数，不执行Ticket业务函数。
     return AIMessage(content="", tool_calls=[{
         "name": "Ticket", "args": args, "id": "call_ticket_demo", "type": "tool_call",
     }])
 
 
 class ScriptedModel(BaseChatModel):
+    # 测试替身：依次交回responses，保存调用记录；不理解原话、不抽取新字段。
     responses: list[AIMessage]
     calls: int = 0
     seen_tools: list = Field(default_factory=list)
@@ -34,10 +36,12 @@ class ScriptedModel(BaseChatModel):
         return "scripted-structured-output-check"
 
     def bind_tools(self, tools, **kwargs):
+        # 记录框架传来的结构说明；不在这里解析工单。
         converted = [convert_to_openai_tool(t) for t in tools]
         return self.bind(tools=converted, **kwargs)
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        # 交回下一条预设消息，真正的参数解析和校验由外层框架完成。
         if self.calls >= len(self.responses):
             raise RuntimeError("固定响应已耗尽")
         self.seen_tools = kwargs.get("tools", [])

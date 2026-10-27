@@ -2,6 +2,10 @@
 
 配合[正文](../../21-结构化输出让模型结果变成程序能用的数据.md)，观察用户原话怎样成为可校验工单。默认离线：回复预先写好，真正运行LangChain解析与Pydantic校验，不验证模型的自然语言理解能力。
 
+公开入口：[GitHub示例目录](https://github.com/benx92/ai-learning-notes/tree/main/examples/21-structured-output)、[字段规则](https://github.com/benx92/ai-learning-notes/blob/main/examples/21-structured-output/schemas.py)、[主实验](https://github.com/benx92/ai-learning-notes/blob/main/examples/21-structured-output/extract_demo.py)。
+
+先用普通字典和`Ticket(...)`理解字段检查，再对照`build_chain()`把同一份Ticket规则交给模型。`Ticket`是数据类型，`ticket`是一份具体数据，`model_validate()`等Pydantic方法不调用大语言模型。主实验和数据处理源码都带步骤注释。
+
 ## 文件与运行顺序
 
 | 文件 | 作用 |
@@ -13,7 +17,14 @@
 | `agent_demo.py` | 真实Agent的`ToolStrategy`与`structured_response`对照，固定响应 |
 | `test_examples.py` | 14项接口、失败分支与来源检查测试 |
 
-在本目录的PowerShell运行，使用Python 3.12：
+首次下载时，在准备保存项目的目录执行：
+
+```powershell
+git clone https://github.com/benx92/ai-learning-notes.git
+cd ai-learning-notes
+```
+
+已有仓库直接进入仓库根目录，再执行`cd examples/21-structured-output`。在该目录的PowerShell运行，使用Python 3.12：
 
 ```powershell
 py -3.12 -m venv .venv
