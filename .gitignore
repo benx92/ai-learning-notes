@@ -5,6 +5,9 @@
 !/LICENSE
 !/[0-9][0-9]-*.md
 /00-*.md
+!/00-写作风格规范.md
+!/00-文章路线与节点映射.md
+!/AGENTS.md
 !/examples/
 !/supplements/
 

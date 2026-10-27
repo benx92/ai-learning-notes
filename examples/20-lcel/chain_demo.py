@@ -72,6 +72,8 @@ def select_policy(data):
 
 
 def build_inputs():
+    # 这两路由开发者预先写定：一路取政策，另一路保留原问题。
+    # 没有分析或拆分问题；两个本地取值也不代表两次资料服务请求。
     # 两条支路收到同一份完整字典；支路名称成为汇总结果的键。
     return RunnableParallel(
         # 取条款字符串，放入输出的context字段。

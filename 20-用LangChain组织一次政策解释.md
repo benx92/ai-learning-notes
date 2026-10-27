@@ -1,33 +1,60 @@
 # 大模型应用开发学习 20：用LangChain组织一次政策解释
 
-商城想在售后页面增加一个功能：用户输入问题，系统根据适用的政策给出解释。
+商城的售后页面需要解释退货政策。例如，用户想知道“会员订单的申请期限是多少”，系统已经取得相关条款，接下来需要根据这些文字组织一段回答。
 
-用户可能问“会员订单的申请期限是多少”，也可能问“商品收到十天了，应该先核对哪些退货条件”。运营维护的是政策文字，用户使用自己的说法提问。产品希望回答能够结合条款讲清楚期限与例外，并说明哪些条件还需要核对。
+这里的任务可以明确为：**输入一份政策资料和一个问题，输出一段基于这份资料的解释。**应用需要把资料和问题交给模型，拿到回复，再取出可以展示的文字。步骤顺序事先就能确定。
 
-如果只要展示一条固定期限，程序查配置、返回文字就够了。这里使用模型的背景是：资料可能较长、问法各不相同，需要把已经取得的条款解释给用户。模型负责组织解释，应用负责给它适用资料、安排调用并展示结果。
+这篇沿着这一项任务，先逐步执行，再把相同的步骤组合成一条LangChain链。提示模板、模型调用、文本解析，以及随后出现的Runnable和LCEL，都围绕这一次政策解释展开。
 
-**这篇要解决的是：怎样把“准备输入→请求模型→取出回答”做成一段能够反复使用的功能。**先把这三个步骤讲清楚，再讨论框架帮助组织了什么。并行、异步等扩展需求单独放在文末链接，不必先学完才能运行这个功能。
+## 先确定这次解释的输入与结果
 
-这次是在完整应用中放大观察“取得资料以后的生成子流程”。[第13篇](13-RAG实战从文档到问答系统.md)已经实现按问题检索并组装证据；[第19篇](19-LangChain入门它到底帮我们封装了什么.md)观察的是模型与工具往返的执行循环。下面先用固定条款隔离三步生成，随后会把它接回13篇的真实检索入口。它不是另一个要求用户先选主题的聊天产品。
+用户的问题是：
 
-**配套仓库与代码入口**
+> 会员订单的申请期限是多少？
 
-完整仓库：[benx92/ai-learning-notes](https://github.com/benx92/ai-learning-notes)。本篇代码都在[`examples/20-lcel`](https://github.com/benx92/ai-learning-notes/tree/main/examples/20-lcel)目录，读正文时可以先打开基础入口，再按需查看复用组件和扩展实验：
+本次提供给程序的政策文字是：
 
-| 文件或说明 | 负责什么 | 建议什么时候看 |
+> 教学政策：会员订单签收后15日内可以申请退货，商品例外需另行核对。来源：demo-policy/member。
+
+这是虚构的教学条款。针对这份资料，一段合适的解释应说明：期限为签收后15日内；仍需核对商品例外，不能仅凭期限就认定某笔订单一定符合条件。
+
+使用模型，是为了把提供的文字组织成针对问题的解释。这个很短的例子便于观察代码；如果产品只需显示一个固定天数，直接返回配置中的数值就足够了。在资料较长、提问方式多样的解释功能里，下面的输入组织和调用过程仍然适用。
+
+**资料已经取得，是这次演示的起点。**完整应用可以把检索结果传进来，资料检索的实现见[文档问答案例](13-RAG实战从文档到问答系统.md)。本例直接提供上面这段文字，集中观察取得资料以后的处理。
+
+程序需要完成三个有先后依赖的动作：
+
+```mermaid
+flowchart TD
+    I[已取得的政策文字 + 用户问题] --> P[第一步：组织成发给模型的聊天消息]
+    P --> M[第二步：调用模型，取得回复消息]
+    M --> O[第三步：从回复中取出文字]
+    O --> A[把解释文字交回调用方]
+```
+
+对应的知识点也只沿这三个动作展开：
+
+| 当前需要 | 使用的组件或接口 | 在本例里完成什么 |
 | --- | --- | --- |
-| [basic_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/basic_demo.py) | 逐步调用、整链调用、空问题直接返回 | **先看、先运行这个文件**，对应正文主线 |
-| [rag_bridge.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/rag_bridge.py) | 复用第13篇检索，把本次证据交给本篇生成链 | 理解基础三步后，查看资料输入怎样接回完整RAG |
-| [chain_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/chain_demo.py) | 提供政策数据、模板、模型创建函数和基础链；保留字段映射、并行、分支与流式实验 | 正文提到某个复用函数时查看；其余实验按需读 |
-| [reliability_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/reliability_demo.py) | 模拟临时超时后的有限重试、持续失败后的备用处理 | 需要理解失败处理时查看 |
-| [test_examples.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/test_examples.py) | 检查调用次数、数据交接、空问题拦截及扩展组件行为 | 运行示例后核对验证范围 |
-| [requirements.txt](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/requirements.txt) | 本例固定的直接依赖版本 | 安装环境时使用 |
-| [README](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/README.md) | 完整命令、预期现象、在线配置与示例边界 | 运行遇到问题时查阅 |
-| [组件组合与运行方式扩展](https://github.com/benx92/ai-learning-notes/blob/main/supplements/20-组件组合与运行方式扩展.md) | 保留并行、字段追加、批量、异步、流式等详细讲解 | 基础主线读通后，按需求选择主题 |
+| 每次把资料、问题和固定要求组织到一起 | `ChatPromptTemplate` | 创建消息模板，运行时填入本次内容 |
+| 把准备好的消息交给模型 | 模型对象的`invoke` | 取得一条回复消息 |
+| 把回复变成可展示的文字 | `StrOutputParser` | 从回复消息中取得文本 |
+| 把上述三步作为一个整体执行 | Runnable接口与LCEL组合 | 按顺序交接数据，对外接收输入并返回文字 |
 
-`basic_demo.py`会导入`chain_demo.py`中的已有函数，运行时请保留整个示例目录，不要只复制单个文件。默认使用固定回复，不需要API Key；在线模式的配置与验证边界在文末说明。
+最后一行不增加新的业务动作。它改变的是这三个动作如何组织和调用，后面会用同一份输入对照。
 
-首次下载时，在准备保存项目的目录执行：
+## 配套代码在哪里，怎样先运行一次
+
+完整仓库：[benx92/ai-learning-notes](https://github.com/benx92/ai-learning-notes)。这次政策解释的代码在[examples/20-lcel](https://github.com/benx92/ai-learning-notes/tree/main/examples/20-lcel)。阅读正文时只需关注以下入口：
+
+| 文件 | 与正文的关系 |
+| --- | --- |
+| [basic_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/basic_demo.py) | 主入口：用同一份输入比较逐步调用与整链调用 |
+| [chain_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/chain_demo.py) | 正文复用其中的政策数据、`make_prompt`、`make_model`和`build_basic_chain`；文件里的其他实验不属于正文阅读主线 |
+| [requirements.txt](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/requirements.txt) | 固定本例的直接依赖版本 |
+| [README](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/README.md) | 环境准备、可选在线配置及验证范围 |
+
+首次下载时，在准备保存项目的目录打开PowerShell，使用Python 3.12执行：
 
 ```powershell
 git clone https://github.com/benx92/ai-learning-notes.git
@@ -38,61 +65,19 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe basic_demo.py
 ```
 
-已有仓库直接进入examples/20-lcel，使用安装好依赖的环境即可。正文中的Python调用片段在该目录的Python会话或另存的脚本中运行；标明源码的函数是完整文件的摘录。首次阅读也可以直接运行basic_demo.py，不必逐段复制。
+已有仓库则直接进入`examples/20-lcel`。请保留整个目录，因为基础入口会导入同目录的复用函数。
 
-## 从页面收到的问题，到用户看到的回答
+**默认程序使用离线固定回复，不需要API Key。**它不理解问题，无论收到什么内容，都返回预先写好的文字。这样可以先验证三步之间的数据交接。在线模式才会请求模型服务；配置方式见README，调用会使用自己的服务额度。本例没有用真实密钥验证在线回答效果。
 
-为了观察程序，我们使用两份固定教学条款：普通订单签收后7日内可以申请退货，会员订单是15日；商品例外仍要另行核对。它们只是教学资料，不代表真实平台政策。
+下面的函数定义是对应文件的源码摘录；调用片段则从这些文件导入已有函数。若按正文逐段实验，请在该目录的同一个Python会话中依次执行调用片段；也可以直接运行`basic_demo.py`观察完整对照。
 
-先临时用一段会员条款代替检索结果，用户问：
+## 第一步：把资料和问题填进消息模板
 
-> 会员订单的申请期限是多少？
+每次解释变化的是政策文字和用户问题，固定要求可以保持一致：只解释提供的资料，不判断具体订单资格，不查询或提交申请。
 
-一次处理需要下面几份数据：
+程序可以预先保存“固定要求放哪里、资料和问题填哪里”的格式。这样的格式称为**提示模板**。LangChain的`ChatPromptTemplate`用于创建聊天消息模板；源码通过`from langchain_core.prompts import ChatPromptTemplate`导入这个类。
 
-| 时刻 | 程序手里有什么 | 接下来要做什么 |
-| --- | --- | --- |
-| 开始 | 会员条款、用户问题 | 告诉模型要解释哪些资料、回答什么 |
-| 输入准备好 | 处理要求和两份具体内容组成的聊天消息 | 请求模型 |
-| 响应返回 | 包含回答的消息对象 | 取出回答文字 |
-| 最后 | 一段普通字符串 | 展示给用户 |
-
-这几个步骤存在先后依赖。没有把条款发给模型，就不能把回答当作本次政策解释；模型没有返回结果，也就没有文字可以展示。
-
-```text
-已有的适用政策 + 用户问题
-          ↓
-组织成发给模型的消息
-          ↓
-请求模型生成解释
-          ↓
-从回复中取出文字
-          ↓
-展示给用户
-```
-
-资料从哪里来，前面的13篇已经给出一条实现：`retrieve(question)`查候选，`pack_context(hits)`组装本次原文及来源。本例直接读取本地字典，先集中观察取得资料以后的处理。它不查询订单，也不决定某笔订单最终能否退货。
-
-普通Python完全能安排这些步骤。先不考虑任何框架，把它写成流程示意就是：
-
-<!-- example-kind: illustration -->
-
-```python
-def explain_policy(policy, question):
-    messages = prepare_input(policy, question)
-    reply = call_model(messages)
-    return read_answer(reply)
-```
-
-这里的三个内部函数名只是表达职责的示意，下面会用实际组件完成同样的事。我们需要先看懂功能本身，才能判断采用框架是否省事。
-
-## 第一步：把资料与问题放进一份固定格式
-
-每次请求都会变化的是条款和问题，基本要求则保持一致。例如：只解释提供的资料，不猜测具体订单资格，不代替用户提交申请。
-
-如果每次调用都重新拼接这些文字，很容易漏掉资料或要求。程序可以保留一份固定格式，每次只填入当前内容。这份固定格式称为**提示模板**。
-
-LangChain提供`ChatPromptTemplate`创建聊天消息模板。下面是[chain_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/chain_demo.py)里的实际函数：
+[chain_demo.py中的make_prompt](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/chain_demo.py)创建本例模板：
 
 <!-- example-source: examples/20-lcel/chain_demo.py -->
 
@@ -109,11 +94,14 @@ def make_prompt():
     ])
 ```
 
-`ChatPromptTemplate`是框架提供的组件名；`.from_messages(...)`表示根据给出的消息格式创建模板。`make_prompt()`则是我们自己定义的函数名，用来集中保存这段创建代码。
+这段代码里的名称可以按用途理解：
 
-这里有两条消息。`system`那条放固定要求；`human`那条放本次资料和问题。`{context}`与`{question}`是留待填写的位置，其中`context`在本例里就是政策文字。创建模板时，还没有填入具体内容，也没有请求模型。
+- `make_prompt`是本例自己定义的函数，调用它会创建模板。
+- `ChatPromptTemplate.from_messages(...)`根据给出的消息格式创建模板对象。
+- `system`表示放处理要求的系统消息；`human`表示用户侧消息，这里包含应用提供的资料和原问题。
+- `{context}`和`{question}`是留待填入的占位符。`context`在本例里就是政策文字，`question`就是用户问题；`\n`表示换行。
 
-例如实际传入的是：
+创建模板时还没有填入本次内容，更没有请求模型。接下来准备输入并填写：
 
 <!-- example-kind: usage -->
 
@@ -121,27 +109,34 @@ def make_prompt():
 from chain_demo import POLICIES, make_prompt
 
 inputs = {
-    "context": POLICIES["member"],  # 本实验由开发者手选；不是提问自动检索到的结果。
+    "context": POLICIES["member"],  # 开发者在本实验中选定的会员教学条款。
     "question": "会员订单的申请期限是多少？",
 }
-prompt = make_prompt()  # 创建固定格式。
-prepared = prompt.invoke(inputs)  # 把字典里的两个值填到对应位置。
+prompt = make_prompt()  # 创建格式。
+prepared = prompt.invoke(inputs)  # 把字典里的值填入同名占位符。
 for message in prepared.to_messages():
-    print(message.content)  # 看清模型将收到什么，不调用模型。
+    print(message.content)  # 只检查准备好的消息，不调用模型。
 ```
 
-第二条消息会包含这两项内容：
+`POLICIES`是示例中保存教学条款的Python字典，`POLICIES["member"]`取得的就是开头那段会员政策文字。这个取值由开发者写定，用来代替上游已经提供的资料；它没有根据问题搜索资料。
+
+`inputs`里两个键的名称要与模板占位符一致。执行后，模型将收到下面两条消息：
 
 ```text
+系统消息：只解释提供的教学政策，不判断具体订单资格，不查询或提交申请。
+
+用户侧消息：
 资料：教学政策：会员订单签收后15日内可以申请退货，商品例外需另行核对。来源：demo-policy/member。
 问题：会员订单的申请期限是多少？
 ```
 
-`invoke`在这里表示“执行这个组件的工作”：模板的工作是填写消息，所以模板的invoke不会生成回答。`prepared`保存填好的输入；框架给这种输入对象起的类型名是`ChatPromptValue`。不必先记住类型名，先确认它里面确实有本次条款和问题。
+`prepared`保存这份已填好的聊天输入，其类型名叫`ChatPromptValue`。`.to_messages()`让我们查看里面的具体消息。
 
-## 第二步与第三步：请求模型，再取出回复文字
+这里第一次出现的`invoke`表示“执行这个对象的工作”。模板的工作是填消息，因此`prompt.invoke(inputs)`的结果是模型输入，不是模型回答。
 
-输入准备好了，才把它交给模型调用对象。下面接着使用上一段的`prepared`：
+## 第二步与第三步：取得模型回复，再读出文字
+
+输入准备好后，把上一节的`prepared`交给模型对象：
 
 <!-- example-kind: usage -->
 
@@ -149,82 +144,101 @@ for message in prepared.to_messages():
 from chain_demo import make_model
 
 model = make_model()  # 本例默认创建离线固定回复对象。
-reply = model.invoke(prepared)  # 请求一轮回复，得到消息对象。
-print(type(reply).__name__)  # AIMessage：这是响应消息的类型名。
-print(reply.content)  # 当前纯文本消息里的回答文字。
+reply = model.invoke(prepared)  # 用准备好的消息取得一轮回复。
+print(type(reply).__name__)  # AIMessage：回复消息的类型名。
+print(reply.content)  # 本例纯文本回复里的内容。
 ```
 
-在线应用中，`model`通常是连接某个模型服务的客户端对象。它的invoke会请求服务，模型根据收到的资料组织回答。为了先观察程序，本例默认交回一段预设文字，不请求网络，也不理解用户问题：
+`make_model`也是仓库自定义的函数。默认调用创建离线替身；在线运行时，它负责创建模型服务客户端。创建对象是准备连接配置，调用`model.invoke(...)`才进入取得回复的步骤。
+
+在在线模式下，模型服务根据收到的消息生成解释。当前离线替身交回的文字则预先固定为：
 
 ```text
 教学固定响应：会员订单的申请期限为签收后15日，商品例外仍需核对。
 ```
 
-所以离线修改问题或条款，不会让这句回答自动跟着变化。这个替身只帮助我们核对执行和数据交接；真实模型能否正确解释，需要在线单独验证。
+这句话与本次教学条款对应，但不是离线对象读懂条款后生成的。因此，修改输入不会让固定回复自行变化；这次实验观察的是输入与响应的交接。
 
-`reply`是一条消息对象。除了文本，一条响应还可能带有工具请求或用量信息；当前只需要展示回答，因此读取`reply.content`就能取得本例字符串。到这里，一次政策解释的三个步骤已经走通了。
+`reply`是一条回复消息，类型为`AIMessage`。当前例子的回答文字在它的`content`字段里。消息对象还可以包含其他信息，调用方若只需要展示文字，就需要明确取出文本。
 
-配套[基础入口basic_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/basic_demo.py)把刚才的实际调用放进同一个普通Python函数：
-
-<!-- example-source: examples/20-lcel/basic_demo.py -->
-
-```python
-def run_stepwise(model, context, question):
-    # 第一步：把已经取得的政策和用户问题放进模板，得到模型输入。
-    inputs = {"context": context, "question": question}
-    prompt = make_prompt()
-    prepared = prompt.invoke(inputs)
-    # 第二步：请求模型；默认离线时，这里只取得预设回复。
-    reply = model.invoke(prepared)
-    # 第三步：本例回复是纯文本消息，直接读取content字段里的回答。
-    return reply.content
-```
-
-它接收模型对象、已经取得的条款和问题，返回回答文字。页面处理代码可以调用这个函数，客服后台也可以调用它。**普通函数已经能实现复用，这一点不需要框架组合语法才能做到。**
-
-## 把三步交给共同的执行方式，究竟改变了什么
-
-现在考虑我们维护的不只是政策解释，还可能有文档摘要、邮件整理等功能。它们的输入内容和要求不同，却经常有“准备输入、请求模型、整理输出”这样的步骤。
-
-希望把其中一些步骤作为现成组件重复组合，并通过相近的方法运行时，框架的共同执行接口开始有用。它让一个步骤能放进一条链，一条已经组装好的链也能作为另一个流程中的步骤。
-
-LangChain把遵循这种共同接口的组件称为**Runnable**。它可以接收输入、执行处理、返回结果。刚才的模板和模型都属于这种组件，所以都有invoke；但它们接收和返回的数据仍不同。
-
-为了把“取出文字”也接进这种组合，LangChain提供`StrOutputParser`。这个名字表示输出为字符串的解析组件，它读取已有响应里的文本，不会再次请求模型，也不检查回答是否符合政策。当前纯文本情况下，它取得的文字与`reply.content`一致：
+LangChain提供`StrOutputParser`来完成这个收口步骤。这个名字可以理解为“输出字符串的解析组件”；`Str`指字符串，`OutputParser`指输出解析器。它处理已经取得的回复，不会再请求一次模型：
 
 <!-- example-kind: usage -->
 
 ```python
 from langchain_core.output_parsers import StrOutputParser
 
-parser = StrOutputParser()  # 创建负责取文字的组件。
-answer = parser.invoke(reply)  # 处理刚才已经收到的消息。
-print(answer == reply.content)  # True：当前纯文本例子中，两种取法相同。
+parser = StrOutputParser()  # 创建取文字的组件。
+answer = parser.invoke(reply)  # 输入已有回复，输出普通字符串。
+print(answer)
+print(isinstance(answer, str))  # True：可以作为文字交给调用方。
 ```
 
-三个步骤现在都能参与共同的组合。于是可以写成：
+在当前纯文本消息中，解析结果与`reply.content`一致。这里把它单独做成一个组件，是为了随后让三个步骤都参与组合。解析器负责读取文字，不负责判断政策解释是否正确。
+
+到这里，一次解释已经逐步走完：
+
+| 步骤 | 接收的数据 | 执行的工作 | 交出的数据 |
+| --- | --- | --- | --- |
+| 模板 | 含`context`和`question`的字典 | 填入要求、资料和问题 | `ChatPromptValue`聊天输入 |
+| 模型 | 准备好的聊天输入 | 取得一轮回复 | `AIMessage`回复消息 |
+| 解析器 | 已有回复消息 | 取出回答文字 | `str`字符串 |
+
+三个对象都有`invoke`，工作却不同。只有模型那一步需要取得模型回复；不能因为看到三次`invoke`，就把它算成三次模型请求。
+
+## 把同样的三步组织成一条链
+
+如果多处都需要调用这段政策解释，可以先把刚才的过程写进普通Python函数。[basic_demo.py中的run_stepwise](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/basic_demo.py)就是逐步调用的实现：
+
+<!-- example-source: examples/20-lcel/basic_demo.py -->
+
+```python
+def run_stepwise(model, context, question):
+    # 准备三个处理对象。创建对象本身不会请求模型。
+    prompt = make_prompt()
+    parser = StrOutputParser()
+    inputs = {"context": context, "question": question}
+    # 第一步：模板把资料和问题填成聊天消息。
+    prepared = prompt.invoke(inputs)
+    # 第二步：请求模型；默认离线时，这里只取得预设回复。
+    reply = model.invoke(prepared)
+    # 第三步：解析器读取已有回复中的文本，不再请求模型。
+    return parser.invoke(reply)
+```
+
+函数里使用的`make_prompt`来自`chain_demo.py`，`StrOutputParser`来自`langchain_core.output_parsers`，完整文件已导入它们。这个函数接收模型、资料和问题，返回回答文字。调用方已经可以复用它；普通函数完全能够组织这三个步骤。
+
+再看LangChain提供的组合方式。模板、模型和解析器遵守共同的调用约定，可以接收输入、执行处理、返回结果，并参与组合。框架把这类处理单元称为**Runnable**。
+
+这里“共同”指调用方式，输入输出的类型仍然不同。正因为模板交出的聊天输入能被模型接收，模型交出的回复又能被解析器接收，这三步才能顺序相连。
+
+于是，前面已经创建的三个对象可以这样组合：
 
 <!-- example-kind: usage -->
 
 ```python
-# 使用前面创建的三个对象；这一行只建立连接关系。
-chain = prompt | model | parser
-# 这行才开始执行：填模板 -> 请求模型 -> 取出文字。
-answer = chain.invoke(inputs)
+# 沿用前面创建的prompt、model和parser。
+chain = prompt | model | parser  # 这里只建立先后连接，不执行。
+answer = chain.invoke(inputs)  # 到这里才执行三个步骤。
 print(answer)
 ```
 
-这里的`|`表示从左到右连接：左边的结果交给右边。框架把这种组合写法称为**LCEL**，全名是LangChain Expression Language。它是Python对象的组合方式，不是另外发给模型理解的一段语言。
+`|`在这里表示“把左边的输出交给右边”。这种组合写法称为**LCEL**，全名是LangChain Expression Language。它是Python代码中组合处理对象的方式；发给模型的仍然是模板准备好的消息，模型不会看到这行管道表达式。
 
-可以把两种实际写法逐项对上：
+这条组合对象的类型叫`RunnableSequence`，表示按顺序执行的Runnable组合。整条链本身也能通过共同接口调用：`chain.invoke(inputs)`从第一个组件开始，逐步传递数据，最后交回字符串。
 
-| 原来自己逐步调用 | 组合后的内部步骤 |
+两种写法可以直接对照：
+
+| 自己逐步安排 | 交给链安排 |
 | --- | --- |
-| `prompt.invoke(inputs)` | 第一个组件准备输入 |
-| `model.invoke(prepared)` | 第二个组件接收准备好的输入并取得响应 |
-| `parser.invoke(reply)` | 第三个组件接收响应，交回文字 |
+| 调用模板，保存`prepared` | 第一个组件接收`inputs`并准备聊天输入 |
+| 调用模型，保存`reply` | 第二个组件接收前一步输入并取得回复 |
+| 调用解析器，取得文字 | 第三个组件接收回复并交出文字 |
+| 普通函数统一返回结果 | 整条链统一返回结果 |
 
-如果希望多处使用同样的组合，源码里的函数把它返回给调用方：
+**业务目标、输入资料和模型工作没有变化，变化的是调用与数据传递由谁组织。**两种方式都能集中复用。使用Runnable组合后，单个组件和组合结果还遵守同一套执行约定，便于继续替换、组合步骤，而不需要在每个调用位置重新排列内部过程。
+
+本例用[chain_demo.py中的build_basic_chain](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/chain_demo.py)保存这个组合：
 
 <!-- example-source: examples/20-lcel/chain_demo.py -->
 
@@ -240,133 +254,61 @@ def build_basic_chain(model):
     return prompt | model | parser
 ```
 
-`build_basic_chain(model)`创建连接关系，返回的`chain`仍然可以用invoke执行，也能继续参与其他组合。它的具体类型名是`RunnableSequence`，对应的就是“依次执行这些步骤”。[官方组合接口](https://reference.langchain.com/python/langchain-core/runnables/base/RunnableSequence)
+`build_basic_chain`是本例自定义的函数名。它创建模板与解析器，把传入的模型接在中间，然后返回组合对象。调用这个函数只是在组装；随后运行返回对象的`invoke`才会处理具体问题。
 
-这次变化并没有提高模型理解能力，也没有替业务代码取得真实政策。变化是：三步之间的调用和传递，可以交给共同的组合对象安排；调用方提交字典，接收最终文字。
+## 运行结果怎样对应这一次政策解释
 
-只有这三步时，前面的普通函数很清楚，可以继续使用。后续确实需要频繁组合组件、批量执行或流式输出时，再结合需求选择共同接口，收益才容易观察。
+理解内部三步后，在另一个脚本使用这个功能，只需要导入已经定义好的入口。下面这段可在配套目录单独运行，不依赖前面会话中的变量：
 
-**现在把用户问题和第13篇取得的资料接回来。**
-
-手选POLICIES只是隔离生成实验。实际从知识库回答时，用户的问题先交给13篇的ask：它调用retrieve找候选，调用pack_context选择和编号原文，得到context与evidence。只要已有选入的证据，就把question和context交给本篇的链；没有证据则直接返回资料不足。
-
-| 交接数据 | 由谁提供 | 交给谁 |
-| --- | --- | --- |
-| question | 用户原话，必要时由应用结合已确认事实整理查询 | 检索程序，也保留给生成步骤 |
-| context | 本次检索并选入的可读原文 | 模板的context字段 |
-| evidence | 同一批原文的来源、位置和编号 | 返回给调用方，供引用与核验 |
-| answer | 本篇的生成链 | 展示入口，仍需结合证据核对 |
-
-这里的context是“参考资料文字”这个具体变量，不是05篇讨论的全部模型上下文。模板还会把问题和固定要求一起组织进本次输入。保留evidence也很重要：不能生成文字以后就丢掉回答依据。
-
-新增的[rag_bridge.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/rag_bridge.py)复用原有ask，只把其generator参数替换为下面的适配函数。generator是13篇允许传入的生成函数，不是另一次资料检索：
-
-<!-- example-source: examples/20-lcel/rag_bridge.py -->
+<!-- example-kind: usage -->
 
 ```python
-def ask_with_chain(pipeline, chain, question):
-    def generate_from_chain(question, context):
-        # context由第13篇的检索与组装程序提供，不再手工指定member条款。
-        answer = chain.invoke({"context": context, "question": question})
-        return {"answer": answer}
+from chain_demo import POLICIES, build_basic_chain, make_model
 
-    # 复用已有ask：检索 -> 选择证据 -> 有证据才调用上面的生成步骤。
-    # 返回值保留evidence和状态；这个适配器只接回答文字，不传递模型用量。
-    return ask(pipeline, question, generator=generate_from_chain)
+model = make_model()  # 创建离线固定回复对象。
+chain = build_basic_chain(model)  # 组装三步，尚未执行。
+answer = chain.invoke({
+    "context": POLICIES["member"],  # 仍然使用开头的同一份教学条款。
+    "question": "会员订单的申请期限是多少？",  # 仍然回答同一个问题。
+})
+print(answer)  # 调用方收到解释文字。
 ```
 
-这段函数不根据“member”选择资料，也没有重新实现检索。外层ask取得什么原文，内层generate_from_chain就把什么原文交给链。证据不为空仍不保证适用；这个接入沿用13篇的召回与预算设置，需要继续对照原文核验。返回结果继续保留资料不足状态、实际选入的evidence和生成后待核验状态；本适配器只接回答文字，没有传递供应商用量统计。
+这一段里，`context`与`question`是这次功能需要的输入，`answer`是它交回的结果。调用方可以是脚本或页面后端。仓库提供的是命令行示例，页面只用于说明使用场景。
 
-这个接入脚本需要13篇已经入库的数据库，以及13篇的嵌入与向量库依赖和本篇的LangChain核心依赖，基础示例的轻量环境不一定具备这些库。完整运行准备见[README中的跨篇接入说明](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/README.md)。它接通固定的RAG路线，没有声称自动完成“检索还是查订单”的Agent工具选择。
-
-## 新需求先写成普通判断：用户没有填问题怎么办
-
-用户点击提交，但输入框里只有几个空格。正常的产品行为应该是显示“请先填写政策问题”，而不是请求一次模型再等它回复。
-
-这里没有任何需要模型判断的事情。普通Python已经能明确处理：检查类型，清理两端空白，判断剩下的文字是否为空。基础入口使用这个实际函数：
-
-<!-- example-source: examples/20-lcel/basic_demo.py -->
-
-```python
-def answer_question(chain, context, question):
-    # 普通Python先检查页面输入，不需要模型判断用户有没有输入文字。
-    if not isinstance(question, str):
-        raise TypeError("question必须是字符串")
-    question = question.strip()
-    if not question:
-        # 提前返回，没有运行chain.invoke，所以不会请求模型。
-        return "请先填写政策问题。"
-    # 输入有效才执行政策解释；chain负责内部三步的数据交接。
-    return chain.invoke({"context": context, "question": question})
-```
-
-按一次空问题执行来看：
-
-1. `question.strip()`把几个空格变成空字符串。
-2. `if not question`成立。
-3. 函数直接返回提示，后面的chain.invoke没有执行。
-
-正常问题则经过同样的检查，再进入已经组装好的解释链。外层的业务判断与内层的模型处理各自负责一段工作，读代码时也可以分别核对。
-
-框架还提供按条件选择路径的`RunnableBranch`，以及把普通函数接入共同接口的`RunnableLambda`。它们适合“希望这段判断或函数本身也参与组合”的情况。**当前需求已经能由上面的if完成，不必为了使用框架，再把它改写成更多组件。**具体的两种写法对照放在[扩展说明](https://github.com/benx92/ai-learning-notes/blob/main/supplements/20-组件组合与运行方式扩展.md)。
-
-## 再有新需求时，一次只增加一件事
-
-文章里出现的其他组件，来自不同需求，并不是这个功能必须继续经过的处理步骤。先不要把它们合成一张需要全部背下来的表。
-
-**如果页面只传“会员标识和问题”，还没有传政策。**程序需要先根据已经确认的业务配置取得条款，再把“条款和问题”交给基础链。这个步骤改变的是输入字段。以后仍要使用会员标识，就在整理时保留它；只需要条款与问题，就只交出这两项。
-
-普通字典取值和赋值就能完成。扩展里的`RunnableParallel`演示怎样把多路处理结果汇总成字典，`RunnablePassthrough.assign`演示怎样保留旧字段并追加新字段。当前本地取值很快，使用并行映射主要是观察字段怎样变化，没有性能上的必要性。
-
-**如果需要同时取得两份互不依赖的资料。**例如一项查询退货条款，另一项查询商品例外说明。两项查询可以同时发起，等资料都到齐再交给模型，这时并行可能节省等待。它不会自动把两份查询变成一次，也不会减少两次查询本来需要完成的工作。这是与“从字典取两个字段”不同的工程需求，本例没有实现远程资料服务。
-
-**如果每天有一批问题要处理。**原来的解释功能不需要重新定义，只是分别运行多份输入。`batch`是这种批量调用的入口，不是把全部问题拼成一个很长的提问。若其中一份输入有问题，如何返回这份错误，要在批量入口明确处理。
-
-**如果界面希望边收到边显示。**原来先等整段回答，再交给页面。现在改成模型交来一小段，程序就交给页面一小段，这种方式叫流式输出，调用入口是`stream`。后续处理如果要等整段收齐，它之后的页面仍然得等。因此扩展里才会比较一次处理完整字符串的函数与逐段处理的生成器；字母大写只是观察机制的实验，不是政策解释本身的功能。
-
-**如果运行环境是异步服务，或者服务出现临时故障。**异步入口`ainvoke`用于让异步程序在等待网络结果时安排其他就绪任务；它不会让模型本身自动生成得更快。超时后再试一次、主服务不可用时返回明确失败提示，则分别属于重试与备用处理。这些都是运行方式或失败处理，不会让模型额外理解政策。
-
-基础功能只需要把一次请求处理正确。这些扩展有各自的触发需求，也应有各自的验证。需要哪一项，就读扩展里的对应部分；无需把它们同时加进这个小功能。
-
-## 先运行基础入口，再核对自己理解的过程
-
-源码集中在[示例目录](https://github.com/benx92/ai-learning-notes/tree/main/examples/20-lcel)。正文的简单入口是[basic_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/basic_demo.py)，复用[chain_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/chain_demo.py)里已有的模板、模型工厂与基础链。无需先读懂后者所有扩展函数。
-
-下载、依赖安装和基础入口命令见正文开头。进入`examples/20-lcel`后运行`basic_demo.py`，可以核对下面的输出。
-
-默认输出为：
+运行正文开头的`basic_demo.py`，默认输出为：
 
 ```text
 离线固定回复只用于观察步骤，不验证模型理解能力。
 逐步调用： 教学固定响应：会员订单的申请期限为签收后15日，商品例外仍需核对。
 整链调用： 教学固定响应：会员订单的申请期限为签收后15日，商品例外仍需核对。
-空问题： 请先填写政策问题。
 ```
 
-前两种调用得到相同文字，说明同一个固定响应能够走通两条执行路径；空问题直接得到填写提示。固定回复不理解问题，当前验证不代表线上回答效果。
+“逐步调用”使用`run_stepwise`依次运行三个对象；“整链调用”使用`build_basic_chain`创建的组合。两条路径各取得一次固定回复，所以默认对照会使用替身两次。在线模式只运行整链路径，避免为演示对照重复请求服务。
 
-若使用在线模型，在同一个PowerShell会话配置自己的参数，再运行：
+两条路径交回相同文字，说明同样的输入能按两种安排走完处理过程。这不证明真实模型总能正确解释条款。在线使用时，仍需核对回答是否只依据提供的资料，是否把“可申请期限”误说成“必然符合退货资格”。
 
-```powershell
-$env:DEEPSEEK_API_KEY = "填写自己的密钥"
-$env:LC_CHAT_MODEL = "填写账户可用的模型名"
-.\.venv\Scripts\python.exe basic_demo.py --live
-```
+如果运行结果不符合预期，可以顺着本例的三个交接位置排查：
 
-在线模式只运行一次生成，不再为逐步与整链对照重复请求。模型客户端读取进程环境变量，不自动加载.env。这里使用已有DeepSeek集成，单次请求超时45秒、客户端重试关闭，具体模型和供应商模式需符合所用服务的支持范围。在线请求使用账户额度，当前没有以真实密钥验证回答效果。
+| 出现的问题 | 先检查哪里 |
+| --- | --- |
+| 模板报缺少变量 | `inputs`是否同时提供`context`和`question`，名称是否一致 |
+| 回答像是没有看到资料 | 先查看`prepared.to_messages()`，确认实际发给模型的消息含有本次政策 |
+| 拿到的是消息对象，展示代码却需要文字 | 确认链末端接了文本解析器，或调用方明确读取了所需文本 |
+| 修改条款后，离线答案始终一样 | 确认是否仍在使用固定回复替身；替身不会理解新内容 |
 
-输入整理、字段保留、并行、批量、异步和流式的详细实验，以及重试与回退，见[组件组合与运行方式扩展](https://github.com/benx92/ai-learning-notes/blob/main/supplements/20-组件组合与运行方式扩展.md)。原有实验入口仍保留：
+链不会替程序猜字段对应，也不会修正不匹配的数据类型。上一步交出的内容必须能被下一步接收。逐步执行的意义也在这里：先看清每一站拿到了什么，再核对整条链的结果。
 
-```powershell
-.\.venv\Scripts\python.exe chain_demo.py
-.\.venv\Scripts\python.exe reliability_demo.py
-.\.venv\Scripts\python.exe -m unittest -v
-```
+## 一次政策解释的完整过程
 
-读回这段政策解释代码时，先确认四件事：程序已经取得什么资料，模板怎样放入资料和问题，模型调用发生在哪里，最终返回的是整条消息还是回答文字。能对上这四件事，就能判断每个组件在这个需求中承担的工作；后面增加新需求时，再决定让普通Python处理，还是接入共同的组件接口。
+这次政策解释从两项已经给定的输入开始：会员教学条款和“申请期限是多少”的问题。模板将它们与固定要求组织为聊天输入，模型取得输入并交回回复，文本解析器把回复收成字符串。调用方最终得到的是可用于展示的解释文字。
+
+Runnable提供共同的执行与组合约定，LCEL用`|`把这三个处理单元按顺序连接起来。整条链因此可以作为一个整体使用，而每一步的职责仍然清楚：模板准备输入，模型生成回复，解析器读取文字。
+
+这里能够集中复用的是一次政策解释的处理过程。资料是否适用、解释是否忠于原文，还要结合实际输入与回答核对。无论采用逐步函数还是链式组合，这条数据路径都应该能被说明白：**给了什么资料，怎样交给模型，模型返回什么，程序最终交出了什么。**
 
 ## 参考资料
 
-- [LangChain RunnableSequence：顺序组合](https://reference.langchain.com/python/langchain-core/runnables/base/RunnableSequence)
-- [StrOutputParser：从响应中取得文本](https://reference.langchain.com/python/langchain-core/output_parsers/string/StrOutputParser)
-- [配套运行说明](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/README.md)
+- [ChatPromptTemplate：聊天消息模板](https://reference.langchain.com/python/langchain-core/prompts/chat/ChatPromptTemplate)
+- [RunnableSequence：顺序组合](https://reference.langchain.com/python/langchain-core/runnables/base/RunnableSequence)
+- [StrOutputParser：取得文本输出](https://reference.langchain.com/python/langchain-core/output_parsers/string/StrOutputParser)

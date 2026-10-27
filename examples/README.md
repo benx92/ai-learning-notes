@@ -11,8 +11,8 @@
 | 17 Agent | [17-agent](17-agent/README.md)、[15-tool-calling](15-tool-calling/README.md) | `trace_loop.py`观察A1001循环的输入与反馈，复用15篇查询；A3003多步任务、追问恢复与完整在线申请Agent仍是设计说明 |
 | 18 安全护栏 | [18-guardrails](18-guardrails/README.md)、[15-tool-calling](15-tool-calling/README.md) | 确认、名称拦截、重试与限额的独立包装实验；申请服务保留业务检查，未实现完整持久审批Agent |
 | 19 LangChain | [19-langchain](19-langchain/README.md) | `comparison_demo.py`对比手写与框架循环；`two_tools_demo.py`扩展物流；`agent_demo.py`可选在线调用；组件补充见`extensions/` |
-| 20 LangChain处理步骤的组合 | [20-lcel](20-lcel/README.md) | `basic_demo.py`先观察基础三步；`rag_bridge.py`复用13篇检索接入生成链；`chain_demo.py`和`reliability_demo.py`保留按需扩展实验 |
-| 21 结构化输出 | [21-structured-output](21-structured-output/README.md) | `validation_demo.py`区分语法与Schema；`extract_demo.py`观察结构化调用、校验与草稿判断；`agent_demo.py`对照最终结构字段 |
+| 20 LangChain处理步骤的组合 | [20-lcel](20-lcel/README.md) | 正文用`basic_demo.py`解释同一份资料和问题的三步交接，比较逐步调用与LCEL整链调用；检索接入、其他组件与运行方式另列为独立扩展 |
+| 21 结构化输出 | [21-structured-output](21-structured-output/README.md) | 围绕一条售后描述，`validation_demo.py`区分JSON与字段检查，`extract_demo.py`串起字段约定、结构化调用、有限重试与草稿使用；Agent返回接口另列为独立扩展 |
 | 22 Memory | [22-memory](22-memory/README.md) | 对照手工历史与检查点，验证跨进程恢复、状态注入、跨会话偏好及摘要触发 |
 | 23—32 | [共享助手与实验](23-32-assistant/README.md) | 图状态、动态派发、持久审批、流式、按需说明、长任务、后台调度、委派、团队协议与完整本地助手；含可选真实模型入口 |
 

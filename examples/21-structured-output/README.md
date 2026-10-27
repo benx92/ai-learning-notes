@@ -1,6 +1,6 @@
 # 第21章：结构化输出与工单草稿
 
-配合[正文](../../21-结构化输出让模型结果变成程序能用的数据.md)，观察用户原话怎样成为可校验工单。默认离线：回复预先写好，真正运行LangChain解析与Pydantic校验，不验证模型的自然语言理解能力。
+配合[正文](../../21-结构化输出让模型结果变成程序能用的数据.md)，沿同一条售后原话观察“文字与JSON→字段约定及未知值→本地检查→结构化调用→失败处理→读取工单字段”。默认离线：回复预先写好，真正运行LangChain解析与Pydantic校验，不验证模型的自然语言理解能力。
 
 公开入口：[GitHub示例目录](https://github.com/benx92/ai-learning-notes/tree/main/examples/21-structured-output)、[字段规则](https://github.com/benx92/ai-learning-notes/blob/main/examples/21-structured-output/schemas.py)、[主实验](https://github.com/benx92/ai-learning-notes/blob/main/examples/21-structured-output/extract_demo.py)。
 
@@ -14,7 +14,7 @@
 | `validation_demo.py` | JSON解析与字段校验；缺字段、非法枚举、字符串null、额外字段和来源不符 |
 | `fixtures.py` | 固定工具响应与`ScriptedModel`；只适配模型接口，不执行订单查询 |
 | `extract_demo.py` | 模板与结构化模型组合、最多两次生成尝试、草稿判断；可选`--live` |
-| `agent_demo.py` | 真实Agent的`ToolStrategy`与`structured_response`对照，固定响应 |
+| `agent_demo.py` | 独立扩展：Agent的`ToolStrategy`与`structured_response`对照，固定响应；不属于正文主线 |
 | `test_examples.py` | 14项接口、失败分支与来源检查测试 |
 
 首次下载时，在准备保存项目的目录执行：
@@ -31,11 +31,20 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe validation_demo.py
 .\.venv\Scripts\python.exe extract_demo.py
-.\.venv\Scripts\python.exe agent_demo.py
 .\.venv\Scripts\python.exe -m unittest -v
 ```
 
 固定直接依赖：LangChain 1.4.6、langchain-core 1.6.10、langchain-deepseek 1.1.1、Pydantic 2.14.1。
+
+正文先讲清单次结构化抽取。需要Agent最终结果接口对照时，再单独运行`python agent_demo.py`并阅读[实现与接口说明](../../supplements/21-结构化输出实现与接口说明.md)；不必先学习这一路径才能理解或运行正文示例。
+
+## 正文阅读与代码对照
+
+1. 看四字段Ticket需要保存什么：类别、订单号、紧急程度和摘要，每个字段都有具体用途。
+2. 用`validation_demo.py`区分JSON语法与字段检查，再看`None`、省略字段和字符串`"null"`的差别。
+3. 看`extract_demo.py`的`build_chain()`：模板提供抽取要求与原话，结构化接口接收同一份Ticket规则；`raw/parsed/parsing_error`分别保留原始回复、对象与错误。
+4. 看`extract_with_retry()`怎样检查结果并最多尝试两次。未知值、结构失败与来源不符是不同结果，不能都按成功处理。
+5. 用`prepare_draft()`对照对象怎样变为草稿字典和处理建议。它不创建实际工单，也不证明订单事实。
 
 ## 应观察到什么
 
