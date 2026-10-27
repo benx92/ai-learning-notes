@@ -8,6 +8,8 @@
 
 **这篇要解决的是：怎样把“准备输入→请求模型→取出回答”做成一段能够反复使用的功能。**先把这三个步骤讲清楚，再讨论框架帮助组织了什么。并行、异步等扩展需求单独放在文末链接，不必先学完才能运行这个功能。
 
+这次是在完整应用中放大观察“取得资料以后的生成子流程”。[第13篇](13-RAG实战从文档到问答系统.md)已经实现按问题检索并组装证据；[第19篇](19-LangChain入门它到底帮我们封装了什么.md)观察的是模型与工具往返的执行循环。下面先用固定条款隔离三步生成，随后会把它接回13篇的真实检索入口。它不是另一个要求用户先选主题的聊天产品。
+
 **配套仓库与代码入口**
 
 完整仓库：[benx92/ai-learning-notes](https://github.com/benx92/ai-learning-notes)。本篇代码都在[`examples/20-lcel`](https://github.com/benx92/ai-learning-notes/tree/main/examples/20-lcel)目录，读正文时可以先打开基础入口，再按需查看复用组件和扩展实验：
@@ -15,6 +17,7 @@
 | 文件或说明 | 负责什么 | 建议什么时候看 |
 | --- | --- | --- |
 | [basic_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/basic_demo.py) | 逐步调用、整链调用、空问题直接返回 | **先看、先运行这个文件**，对应正文主线 |
+| [rag_bridge.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/rag_bridge.py) | 复用第13篇检索，把本次证据交给本篇生成链 | 理解基础三步后，查看资料输入怎样接回完整RAG |
 | [chain_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/chain_demo.py) | 提供政策数据、模板、模型创建函数和基础链；保留字段映射、并行、分支与流式实验 | 正文提到某个复用函数时查看；其余实验按需读 |
 | [reliability_demo.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/reliability_demo.py) | 模拟临时超时后的有限重试、持续失败后的备用处理 | 需要理解失败处理时查看 |
 | [test_examples.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/test_examples.py) | 检查调用次数、数据交接、空问题拦截及扩展组件行为 | 运行示例后核对验证范围 |
@@ -41,7 +44,7 @@ py -3.12 -m venv .venv
 
 为了观察程序，我们使用两份固定教学条款：普通订单签收后7日内可以申请退货，会员订单是15日；商品例外仍要另行核对。它们只是教学资料，不代表真实平台政策。
 
-假设应用已经取得本次适用的会员条款，用户问：
+先临时用一段会员条款代替检索结果，用户问：
 
 > 会员订单的申请期限是多少？
 
@@ -68,7 +71,7 @@ py -3.12 -m venv .venv
 展示给用户
 ```
 
-资料从哪里来，是这条流程的上游问题：可以从经过确认的配置、文档或检索结果中取得。本例直接读取本地字典，先集中观察取得资料以后的处理。它不查询订单，也不决定某笔订单最终能否退货。
+资料从哪里来，前面的13篇已经给出一条实现：`retrieve(question)`查候选，`pack_context(hits)`组装本次原文及来源。本例直接读取本地字典，先集中观察取得资料以后的处理。它不查询订单，也不决定某笔订单最终能否退货。
 
 普通Python完全能安排这些步骤。先不考虑任何框架，把它写成流程示意就是：
 
@@ -118,7 +121,7 @@ def make_prompt():
 from chain_demo import POLICIES, make_prompt
 
 inputs = {
-    "context": POLICIES["member"],  # 从教学字典取得会员条款。
+    "context": POLICIES["member"],  # 本实验由开发者手选；不是提问自动检索到的结果。
     "question": "会员订单的申请期限是多少？",
 }
 prompt = make_prompt()  # 创建固定格式。
@@ -242,6 +245,39 @@ def build_basic_chain(model):
 这次变化并没有提高模型理解能力，也没有替业务代码取得真实政策。变化是：三步之间的调用和传递，可以交给共同的组合对象安排；调用方提交字典，接收最终文字。
 
 只有这三步时，前面的普通函数很清楚，可以继续使用。后续确实需要频繁组合组件、批量执行或流式输出时，再结合需求选择共同接口，收益才容易观察。
+
+**现在把用户问题和第13篇取得的资料接回来。**
+
+手选POLICIES只是隔离生成实验。实际从知识库回答时，用户的问题先交给13篇的ask：它调用retrieve找候选，调用pack_context选择和编号原文，得到context与evidence。只要已有选入的证据，就把question和context交给本篇的链；没有证据则直接返回资料不足。
+
+| 交接数据 | 由谁提供 | 交给谁 |
+| --- | --- | --- |
+| question | 用户原话，必要时由应用结合已确认事实整理查询 | 检索程序，也保留给生成步骤 |
+| context | 本次检索并选入的可读原文 | 模板的context字段 |
+| evidence | 同一批原文的来源、位置和编号 | 返回给调用方，供引用与核验 |
+| answer | 本篇的生成链 | 展示入口，仍需结合证据核对 |
+
+这里的context是“参考资料文字”这个具体变量，不是05篇讨论的全部模型上下文。模板还会把问题和固定要求一起组织进本次输入。保留evidence也很重要：不能生成文字以后就丢掉回答依据。
+
+新增的[rag_bridge.py](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/rag_bridge.py)复用原有ask，只把其generator参数替换为下面的适配函数。generator是13篇允许传入的生成函数，不是另一次资料检索：
+
+<!-- example-source: examples/20-lcel/rag_bridge.py -->
+
+```python
+def ask_with_chain(pipeline, chain, question):
+    def generate_from_chain(question, context):
+        # context由第13篇的检索与组装程序提供，不再手工指定member条款。
+        answer = chain.invoke({"context": context, "question": question})
+        return {"answer": answer}
+
+    # 复用已有ask：检索 -> 选择证据 -> 有证据才调用上面的生成步骤。
+    # 返回值保留evidence和状态；这个适配器只接回答文字，不传递模型用量。
+    return ask(pipeline, question, generator=generate_from_chain)
+```
+
+这段函数不根据“member”选择资料，也没有重新实现检索。外层ask取得什么原文，内层generate_from_chain就把什么原文交给链。证据不为空仍不保证适用；这个接入沿用13篇的召回与预算设置，需要继续对照原文核验。返回结果继续保留资料不足状态、实际选入的evidence和生成后待核验状态；本适配器只接回答文字，没有传递供应商用量统计。
+
+这个接入脚本需要13篇已经入库的数据库，以及13篇的嵌入与向量库依赖和本篇的LangChain核心依赖，基础示例的轻量环境不一定具备这些库。完整运行准备见[README中的跨篇接入说明](https://github.com/benx92/ai-learning-notes/blob/main/examples/20-lcel/README.md)。它接通固定的RAG路线，没有声称自动完成“检索还是查订单”的Agent工具选择。
 
 ## 新需求先写成普通判断：用户没有填问题怎么办
 

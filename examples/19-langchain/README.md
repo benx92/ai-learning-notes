@@ -75,17 +75,15 @@ $env:LC_CHAT_MODEL = "填写账户可用且支持工具调用的模型名"
 | 文件 | 用途 |
 | --- | --- |
 | `extensions/components_demo.py` | 提示模板、Document、工具参数和ToolMessage的离线观察；同时提供在线入口使用的查询工具 |
-| `extensions/offline_agent_demo.py` | 用固定模型响应检查在线入口所配置的Agent循环和调用限额 |
-| `extensions/test_examples.py` | 上述组件、执行接口与Agent行为的8项测试 |
+| `extensions/test_examples.py` | 上述组件、执行接口与Agent行为的8项测试，固定模型替身仅留在此测试文件中 |
 | `extensions/__init__.py` | 使扩展目录可作为Python包运行，并支持测试递归发现 |
 
 从`19-langchain`目录运行，使用模块入口：
 
 ```powershell
 .\.venv\Scripts\python.exe -m extensions.components_demo
-.\.venv\Scripts\python.exe -m extensions.offline_agent_demo
 ```
 
-`components_demo.py`直接创建政策Document，不解析文件或执行RAG。`offline_agent_demo.py`固定查询A1001，最终回答也是预设文本，只用于观察四条消息、调用ID和次数；实际后端结果变化的验证由正文主实验负责。
+`components_demo.py`直接创建政策Document，不解析文件或执行RAG。正文统一运行`comparison_demo.py`观察离线循环。`test_examples.py`中的固定模型替身用于检查在线入口所配置Agent的执行与调用限额。
 
 所有订单、用户与物流都是教学快照。固定用户不能代替真实认证，工具只查询，不提交申请。示例未实现真实售后后端、跨运行会话持久化或完整界面。
