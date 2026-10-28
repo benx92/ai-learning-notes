@@ -1,15 +1,16 @@
 # 第21章：结构化输出与工单草稿
 
-配合[正文](../../21-结构化输出让模型结果变成程序能用的数据.md)，沿同一条售后原话观察“文字与JSON→字段约定及未知值→本地检查→结构化调用→失败处理→读取工单字段”。默认离线：回复预先写好，真正运行LangChain解析与Pydantic校验，不验证模型的自然语言理解能力。
+配合[正文](../../21-结构化输出让模型结果变成程序能用的数据.md)，沿同一条售后原话观察“最小结构化调用→组件分工→字段约定及未知值→请求与响应数据流→失败处理→工单草稿”。正文开头的`quick_start.py`直接调用真实模型；`extract_demo.py`等实验默认离线，用预设回复验证LangChain解析与Pydantic校验。
 
 公开入口：[GitHub示例目录](https://github.com/benx92/ai-learning-notes/tree/main/examples/21-structured-output)、[字段规则](https://github.com/benx92/ai-learning-notes/blob/main/examples/21-structured-output/schemas.py)、[主实验](https://github.com/benx92/ai-learning-notes/blob/main/examples/21-structured-output/extract_demo.py)。
 
-先用普通字典和`Ticket(...)`理解字段检查，再对照`build_chain()`把同一份Ticket规则交给模型。`Ticket`是数据类型，`ticket`是一份具体数据，`model_validate()`等Pydantic方法不调用大语言模型。主实验和数据处理源码都带步骤注释。
+正文先用最小调用取得`Ticket`，再拆解同一份规则怎样传给模型、响应怎样在本地解析与校验，最后对照`build_chain()`接回模板与链。`Ticket`是数据类型，`ticket`是一份具体数据，`model_validate()`等Pydantic方法不调用大语言模型。主实验和数据处理源码都带步骤注释。
 
 ## 文件与运行顺序
 
 | 文件 | 作用 |
 | --- | --- |
+| `quick_start.py` | 最小在线调用：直接配置ChatDeepSeek并读取结构结果，需要密钥 |
 | `schemas.py` | Ticket结构、空值对照、订单号来源检查、下一步建议与草稿处理 |
 | `validation_demo.py` | JSON解析与字段校验；缺字段、非法枚举、字符串null、额外字段和来源不符 |
 | `fixtures.py` | 固定工具响应与`ScriptedModel`；只适配模型接口，不执行订单查询 |
@@ -40,11 +41,11 @@ py -3.12 -m venv .venv
 
 ## 正文阅读与代码对照
 
-1. 看四字段Ticket需要保存什么：类别、订单号、紧急程度和摘要，每个字段都有具体用途。
-2. 用`validation_demo.py`区分JSON语法与字段检查，再看`None`、省略字段和字符串`"null"`的差别。
-3. 看`extract_demo.py`的`build_chain()`：模板提供抽取要求与原话，结构化接口接收同一份Ticket规则；`raw/parsed/parsing_error`分别保留原始回复、对象与错误。
-4. 看`extract_with_retry()`怎样检查结果并最多尝试两次。未知值、结构失败与来源不符是不同结果，不能都按成功处理。
-5. 用`prepare_draft()`对照对象怎样变为草稿字典和处理建议。它不创建实际工单，也不证明订单事实。
+1. 配置下方在线抽取所需的环境变量，运行`quick_start.py`：直接创建`ChatDeepSeek`客户端，传入`Ticket`规则，从`parsed`读取对象。首次先假设成功，后文再补失败检查。没有密钥时可先运行默认离线的`extract_demo.py`。
+2. 分清LLM、Schema、LangChain与Pydantic的职责，再用JSON解析与字段校验对照理解“能解析”和“符合约定”的区别。
+3. 看`schemas.py`中的四字段规则，以及`None`、省略字段和字符串`"null"`的差别。
+4. 看请求与响应数据流：规则转换为工具参数说明，字段从`AIMessage.tool_calls`解析为`Ticket`；再看`build_chain()`如何接回提示模板。`raw/parsed/parsing_error`分别保留原始回复、对象与错误。
+5. 看`extract_with_retry()`如何检查结果并最多尝试两次，再用`prepare_draft()`得到经过来源检查的草稿和处理建议。
 
 ## 应观察到什么
 
@@ -61,12 +62,13 @@ py -3.12 -m venv .venv
 ```powershell
 $env:DEEPSEEK_API_KEY = "填写自己的密钥"
 $env:LC_CHAT_MODEL = "填写账户可用的模型名"
+.\.venv\Scripts\python.exe quick_start.py
 .\.venv\Scripts\python.exe extract_demo.py --live
 ```
 
-不自动读取`.env`；不要把真实密钥提交到Git。使用`method="function_calling"`与非思考模式配置，单次请求超时45秒，客户端自动重试关闭，最多两次生成尝试。该配置用于本例的DeepSeek集成，更换供应商或模式需核对支持范围。在线调用使用自己的服务额度。
+不自动读取`.env`；不要把真实密钥提交到Git。使用`method="function_calling"`与非思考模式配置，`quick_start.py`只发起一次生成请求；`extract_demo.py --live`最多尝试两次。两者单次请求超时45秒，客户端自动重试关闭。该配置用于本例的DeepSeek集成，更换供应商或模式需核对支持范围。在线调用使用自己的服务额度。
 
-本次验证只运行了离线脚本与14项测试，未使用真实密钥发起生成请求，也未测试线上准确率、拒绝率、费用或延迟。未主动配置外部追踪；若环境已有追踪配置，应按自己的数据处理规则使用。
+本次验证运行了离线脚本与14项测试，并用模拟HTTP响应核对`quick_start.py`的请求构造与解析；未使用真实密钥发起生成请求，也未测试线上准确率、拒绝率、费用或延迟。未主动配置外部追踪；若环境已有追踪配置，应按自己的数据处理规则使用。
 
 ## 验证范围与边界
 
