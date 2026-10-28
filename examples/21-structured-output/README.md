@@ -1,10 +1,10 @@
 # 第21章：结构化输出与工单草稿
 
-配合[正文](../../21-结构化输出让模型结果变成程序能用的数据.md)，沿同一条售后原话观察“最小结构化调用→组件分工→字段约定及未知值→请求与响应数据流→失败处理→工单草稿”。正文开头的`quick_start.py`直接调用真实模型；`extract_demo.py`等实验默认离线，用预设回复验证LangChain解析与Pydantic校验。
+配合[正文](../../21-结构化输出让模型结果变成程序能用的数据.md)，沿同一条售后原话观察“文字回复为何难以交给程序→组件分工→字段约定及未知值→最小结构化调用→请求与响应数据流→失败处理→工单草稿”。正文的`quick_start.py`直接调用真实模型；`extract_demo.py`等实验默认离线，用预设回复验证LangChain解析与Pydantic校验。
 
 公开入口：[GitHub示例目录](https://github.com/benx92/ai-learning-notes/tree/main/examples/21-structured-output)、[字段规则](https://github.com/benx92/ai-learning-notes/blob/main/examples/21-structured-output/schemas.py)、[主实验](https://github.com/benx92/ai-learning-notes/blob/main/examples/21-structured-output/extract_demo.py)。
 
-正文先用最小调用取得`Ticket`，再拆解同一份规则怎样传给模型、响应怎样在本地解析与校验，最后对照`build_chain()`接回模板与链。`Ticket`是数据类型，`ticket`是一份具体数据，`model_validate()`等Pydantic方法不调用大语言模型。主实验和数据处理源码都带步骤注释。
+正文先说明工单处理为什么需要固定字段，再定义 `Ticket` 与未知值，接着用最小调用观察结果，拆解规则如何传给模型、响应如何在本地解析与校验，最后对照 `build_chain()` 接回模板与链。正文前部的参考代码表可用于按问题查找文件。`Ticket`是数据类型，`ticket`是一份具体数据，`model_validate()`等Pydantic方法不调用大语言模型。主实验和数据处理源码都带步骤注释。
 
 ## 文件与运行顺序
 
@@ -41,9 +41,9 @@ py -3.12 -m venv .venv
 
 ## 正文阅读与代码对照
 
-1. 配置下方在线抽取所需的环境变量，运行`quick_start.py`：直接创建`ChatDeepSeek`客户端，传入`Ticket`规则，从`parsed`读取对象。首次先假设成功，后文再补失败检查。没有密钥时可先运行默认离线的`extract_demo.py`。
-2. 分清LLM、Schema、LangChain与Pydantic的职责，再用JSON解析与字段校验对照理解“能解析”和“符合约定”的区别。
-3. 看`schemas.py`中的四字段规则，以及`None`、省略字段和字符串`"null"`的差别。
+1. 先理解售后文字为什么需要转换为固定字段，分清 LLM、Schema、LangChain 与 Pydantic 的职责，再用 JSON 解析与字段校验对照理解“能解析”和“符合约定”的区别。
+2. 看 `schemas.py` 中的四字段规则，以及 `None`、省略字段和字符串 `"null"` 的差别。可运行 `validation_demo.py` 观察本地校验。
+3. 配置下方在线抽取所需的环境变量，运行 `quick_start.py`：创建 `ChatDeepSeek` 客户端，传入 `Ticket` 规则，从 `parsed` 读取对象。这里先观察成功路径，后文再补失败检查。没有密钥时可先运行默认离线的 `extract_demo.py`。
 4. 看请求与响应数据流：规则转换为工具参数说明，字段从`AIMessage.tool_calls`解析为`Ticket`；再看`build_chain()`如何接回提示模板。`raw/parsed/parsing_error`分别保留原始回复、对象与错误。
 5. 看`extract_with_retry()`如何检查结果并最多尝试两次，再用`prepare_draft()`得到经过来源检查的草稿和处理建议。
 
@@ -68,7 +68,7 @@ $env:LC_CHAT_MODEL = "填写账户可用的模型名"
 
 不自动读取`.env`；不要把真实密钥提交到Git。使用`method="function_calling"`与非思考模式配置，`quick_start.py`只发起一次生成请求；`extract_demo.py --live`最多尝试两次。两者单次请求超时45秒，客户端自动重试关闭。该配置用于本例的DeepSeek集成，更换供应商或模式需核对支持范围。在线调用使用自己的服务额度。
 
-本次验证运行了离线脚本与14项测试，并用模拟HTTP响应核对`quick_start.py`的请求构造与解析；未使用真实密钥发起生成请求，也未测试线上准确率、拒绝率、费用或延迟。未主动配置外部追踪；若环境已有追踪配置，应按自己的数据处理规则使用。
+此前验证运行了离线脚本与14项测试，并用模拟HTTP响应核对`quick_start.py`的请求构造与解析；未使用真实密钥发起生成请求，也未测试线上准确率、拒绝率、费用或延迟。未主动配置外部追踪；若环境已有追踪配置，应按自己的数据处理规则使用。
 
 ## 验证范围与边界
 

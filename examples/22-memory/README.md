@@ -2,6 +2,8 @@
 
 配合[正文](../../22-助手怎样接着上一次对话继续处理.md)，检查“那这笔呢”怎样接到先前的A1001。默认全部离线，不需要API Key、订单服务或嵌入模型。
 
+建议沿“手工保存历史 → 框架恢复同一会话 → 跨进程保存 → 状态字段进入提示 → 跨会话偏好 → 长历史摘要”阅读。每一步增加一个需求，各脚本是独立实验；正文前部的参考代码表可按问题定位入口。
+
 ## 实验与文件
 
 | 文件 | 实际验证什么 |
@@ -17,7 +19,15 @@
 
 ## 安装与运行
 
-在本目录的PowerShell中，用Python 3.12：
+首次下载时，在准备保存项目的目录打开 PowerShell：
+
+```powershell
+git clone https://github.com/benx92/ai-learning-notes.git
+cd ai-learning-notes
+cd examples/22-memory
+```
+
+已有仓库时，从仓库根目录进入 `examples/22-memory`。在该目录的 PowerShell 中，用 Python 3.12：
 
 ```powershell
 py -3.12 -m venv .venv
@@ -50,6 +60,8 @@ seed成功后记录2条，resume成功后记录4条。该文件保留教学检�
 - 同一用户换thread后仍可读取偏好，但不会因此继承另一场会话的A1001。传入Store却不读取和注入时，探针看不到偏好。
 - 摘要实验三轮结束消息数为2、4、4，摘要模型调用1次。当前状态压缩后，旧检查点仍可能保留原话。
 
+正文补充的调用片段分别复用 `chat_with_history()` 与 `build_preference_agent()`；摘要创建函数也直接摘录 `summary_demo.py`。`save_active_order()` 在第一轮结束后写入字段，第二轮提示中间件再读取它，没有自动接入第21篇的抽取脚本。
+
 ## 在线练习
 
 ```powershell
@@ -65,6 +77,8 @@ $env:LC_CHAT_MODEL = "填写账户可用的模型名"
 ## 测试与实现边界
 
 13项测试覆盖手工历史分离、复用模型对象不恢复前文、检查点恢复到实际输入、新thread与新Saver、缺thread配置、按消息ID合并、状态字段是否注入、状态候选来源检查、偏好跨thread与用户命名空间、仅传Store不生效、偏好更新删除、摘要触发和旧检查点、两个独立进程恢复SQLite。
+
+2026-10-28 文字修订时，使用现有 Python 3.14.6、LangChain 1.3.9、langchain-core 1.4.7、LangGraph 1.2.5、langgraph-checkpoint 4.1.1，运行手工历史示例、核对摘要后的消息组成，并通过除 SQLite 跨进程恢复外的12项测试。当前缺少 Python 3.12 与 SQLite 检查点集成，未重跑该项测试，也未完成上述锁定版本环境的完整复验。源码摘录和下载包同步检查使用 Python 3.14 通过；未请求真实模型服务。
 
 ProbeModel只读取本次传入的用户/系统消息，以规则寻找订单号。`seen_messages`仅记录输入用于核对，不参与生成。固定摘要则直接返回预先写好的SUMMARY，不能用于测试真实摘要质量。
 

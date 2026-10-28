@@ -2,6 +2,12 @@
 
 配合[第22章正文](../22-助手怎样接着上一次对话继续处理.md)。正文沿连续对话讲清保存与复用，以下保留较长实现和排查边界，完整脚本在[22-memory](../examples/22-memory/README.md)。
 
+## 每轮提交新消息，避免重复补历史
+
+配置检查点后，本例每轮只提交新增用户消息，由框架恢复已有状态。若调用方仍手工组装整段旧历史，应核对消息 ID 与合并规则，避免把同一段对话重复追加。
+
+框架的消息合并按消息 ID 识别更新：带相同 ID 的对象或字典可以更新已有消息，重新构造而没有 ID 的旧消息则可能被再次追加。关键是 ID 和合并规则，而不是“对象一定去重、字典一定重复”。配套 `test_examples.py` 的 `test_message_merge_uses_ids_including_dictionary_ids()` 对照了两种情况。[消息状态与合并](https://docs.langchain.com/oss/python/langgraph/graph-api#working-with-messages-in-graph-state)
+
 ## 数据范围与存储寿命是两条轴
 
 | 信息 | 本例存储 | 复用范围 | 进程退出后 |
