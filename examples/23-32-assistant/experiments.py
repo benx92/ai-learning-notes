@@ -16,6 +16,8 @@ from flow import RequestContext, build_flow
 from harness import Background, Schedule, TaskBoard, assemble_request, bounded_call, persist_output
 from routing import batch_graph, retry_graph
 from team import MessageBus, Protocol
+from long_task_demo import long_task_demo
+from background_demo import background_demo
 
 
 def state_demo(folder):
@@ -64,54 +66,6 @@ def streaming_demo(folder):
 def skills_demo(folder):
     return {name: assemble_request(name, "query", {"policy_search", "order_query", "prepare_return"})
             for name in ["policy", "return"]}
-
-
-def long_task_demo(folder):
-    path = Path(folder) / "tasks.sqlite"
-    board = TaskBoard(path)
-    board.add("check", "核对一批售后事实")
-    board.add("draft", "汇总核对结果", ["check"])
-    blocked = not board.claim("draft", "worker")
-    board.claim("check", "worker")
-    calls, delays = [], []
-    def flaky():
-        calls.append(1)
-        if len(calls) < 3:
-            raise TimeoutError("教学超时")
-        return {"order_id": "A3003", "source": "固定教学查询响应"}
-    result = bounded_call(flaky, wait=delays.append)
-    evidence = persist_output(json.dumps(result) * 100, Path(folder) / "outputs")
-    board.remember("demo-user", "current-order", "A3003", "任务check的输入")
-    board.complete("check", "worker", evidence)
-    reopened = TaskBoard(path)
-    return {"initially_blocked": blocked, "calls": len(calls), "simulated_delays": delays,
-            "ready_after_reopen": reopened.claim("draft", "worker"),
-            "memory": reopened.recall("demo-user", "current-order"), "tasks": reopened.list()}
-
-
-def background_demo(folder):
-    background = Background()
-    started = Event()
-    try:
-        def slow(stop):
-            started.set()
-            stop.wait(1)
-            return {"cancel_requested": stop.is_set()}
-        job = background.start(slow)
-        started.wait(2)
-        before = background.get(job)
-        other_input = "后台运行期间，主程序仍能处理这一输入"
-        cancellation = background.cancel(job)
-    finally:
-        background.close()
-    schedule = Schedule(Path(folder) / "schedule.sqlite")
-    schedule.add("check-later", 100, interval=60, count=2)
-    ticks = [schedule.tick(now) for now in (99, 100, 100)]
-    pending = Schedule(Path(folder) / "schedule.sqlite").pending()
-    schedule.cancel("check-later")
-    return {"before": before, "other_input": other_input, "cancel": cancellation,
-            "after": background.get(job), "ticks": ticks, "pending_before_cancel": pending,
-            "after_cancel": schedule.tick(200)}
 
 
 def delegation_demo(folder):

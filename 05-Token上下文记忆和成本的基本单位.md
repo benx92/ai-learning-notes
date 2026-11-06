@@ -206,6 +206,8 @@ $$
 
 这个公式想解决的问题是：一次请求会不会超过模型的上下文窗口。
 
+这里采用“输入与生成共享总窗口”的简化预算模型。具体服务还可能单独限制最大输入、最大输出，并把内部推理Token计入生成预算；需要同时满足这些限制，不能只算窗口减输入。
+
 其中：
 
 - $\text{输入 Token 数}$ 包括系统规则、用户问题、历史对话、文档片段、工具定义等。
@@ -248,7 +250,7 @@ $$
 
 - 桌面够大，可以放更多资料。
 - 桌面不够大，就必须删掉、压缩、摘要或只拿关键页。
-- 模型生成回答时，只能依据桌面上可见的资料。
+- 模型本次可以直接读取的外部资料限于桌面上的内容；它仍会使用训练中形成的语言与知识模式，但不能因此获知未提供的最新业务事实。
 
 ```mermaid
 flowchart LR
@@ -380,6 +382,7 @@ $$
 - $\text{输入 Token 数}$ 是本次请求送给模型看的内容。
 - $\text{输出 Token 数}$ 是模型生成的内容。
 - $\text{输入单价}$ 和 $\text{输出单价}$ 通常按每 100 万 Token 计价。
+- 上式相乘前须把单价换算成每Token；若直接使用每100万Token的报价，就把对应数量先除以100万。缓存、推理用量和其他计费项按具体服务另行核对。
 - 不同模型的单价不同，具体以服务商价格为准。
 
 代入一个小例子：
@@ -599,6 +602,11 @@ def build_request(system_prompt, user_input, history, docs):
         context["history"] = summarize_history(context["history"])
         context["docs"] = reduce_docs(context["docs"])
 
+    # 压缩不保证一定达标，必须对最终将发送的内容重新计数。
+    input_tokens = estimate_tokens(context)
+    if input_tokens > MAX_INPUT_TOKENS:
+        raise ValueError("压缩后仍超出输入预算，需要继续减少内容或更换配置")
+
     return {
         "context": context,
         "max_output_tokens": RESERVED_OUTPUT_TOKENS,
@@ -606,6 +614,8 @@ def build_request(system_prompt, user_input, history, docs):
 ```
 
 这段代码不追求可直接运行，重点是表达一种工程习惯：在调用模型前先做长度判断，而不是等接口报错。
+
+其中`trim_history`、`select_relevant_docs`、`estimate_tokens`、`summarize_history`和`reduce_docs`都是待实现的示意函数；`MAX_INPUT_TOKENS`应在总窗口中扣除输出预留和必要余量后确定，返回的参数名也需适配实际接口。
 
 ## 这一篇可以先收束成三个判断
 

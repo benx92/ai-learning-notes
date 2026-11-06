@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 550" role="img" aria-labelledby="title desc">
+<title id="title">长度改变，夹角不变</title><desc id="desc">左图A为1,0，B为1,1，C为2,0。右图归一化后A和C重合，B的夹角仍为45度。</desc><style>text{font-family:'Microsoft YaHei','Noto Sans SC',sans-serif;fill:#e2e8f0} .title{font-size:27px;font-weight:700}.section{font-size:21px;font-weight:600}.label{font-size:18px}.small{font-size:16px;fill:#94a3b8}.axis{stroke:#64748b;stroke-width:1.5}.note{font-size:19px}</style>
+<defs><marker id="cyan" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#22d3ee"/></marker><marker id="green" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#34d399"/></marker><marker id="violet" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#a78bfa"/></marker></defs>
+<rect width="1100" height="550" fill="#0f172a"/>
+<text x="35" y="43" class="title">余弦比较方向，归一化保留方向</text>
+<rect x="30" y="76" width="505" height="365" rx="15" fill="#172033" stroke="#334155"/><rect x="555" y="76" width="515" height="365" rx="15" fill="#172033" stroke="#334155"/>
+<text x="53" y="111" class="section">原始向量：A与C同向，长度不同</text><text x="579" y="111" class="section">单位向量：A与C重合</text>
+<path d="M95 375H480 M95 375V145" class="axis"/><text x="480" y="399" class="small">x</text><text x="78" y="148" class="small">y</text><text x="73" y="398" class="small">O</text>
+<path d="M95 375L375 375" stroke="#34d399" stroke-width="4" marker-end="url(#green)"/>
+<path d="M95 375L235 375" stroke="#22d3ee" stroke-width="5" marker-end="url(#cyan)"/>
+<path d="M95 375L235 235" stroke="#a78bfa" stroke-width="4" marker-end="url(#violet)"/>
+<path d="M150 375 A55 55 0 0 0 133.89 336.11" fill="none" stroke="#fbbf24" stroke-width="2"/>
+<text x="159" y="346" class="label" fill="#fbbf24">45°</text><text x="196" y="410" class="label">A=(1,0)</text><text x="356" y="347" class="label">C=(2,0)</text><text x="246" y="226" class="label">B=(1,1)</text>
+<path d="M674 375H1025 M674 375V148" class="axis"/><text x="1020" y="399" class="small">x</text><text x="654" y="149" class="small">y</text><text x="650" y="399" class="small">O</text>
+<path d="M864 375 A190 190 0 0 0 674 185" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="6 6"/>
+<path d="M674 375L864 375" stroke="#34d399" stroke-width="8" marker-end="url(#green)"/>
+<path d="M674 375L864 375" stroke="#22d3ee" stroke-width="3"/>
+<path d="M674 375L808.35 240.65" stroke="#a78bfa" stroke-width="4" marker-end="url(#violet)"/>
+<path d="M729 375 A55 55 0 0 0 712.89 336.11" fill="none" stroke="#fbbf24" stroke-width="2"/><text x="738" y="345" class="label">45°</text>
+<text x="815" y="223" class="label">B′≈(0.707,0.707)</text><text x="813" y="410" class="label">A′=C′=(1,0)</text><text x="678" y="170" class="small">单位圆：半径1</text>
+<text x="43" y="479" class="note">cos(A,B)=cos(A′,B′)≈0.707　　cos(A,C)=1</text>
+<text x="43" y="515" class="small">二维数学示例；归一化不消除负相似度，也不能为零向量定义方向。</text></svg>

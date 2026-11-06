@@ -7,9 +7,11 @@
 /00-*.md
 !/00-写作风格规范.md
 !/00-文章路线与节点映射.md
+!/00-写作进度与抽查记录.md
 !/AGENTS.md
 !/examples/
 !/supplements/
+!/imgs/
 
 # Local environments and generated files.
 **/.venv/

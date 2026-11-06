@@ -97,7 +97,9 @@ client = OpenAI(
 更稳的做法是从环境变量读取：
 
 ```powershell
-setx OPENAI_API_KEY "your_api_key_here"
+$apiDemoSecret = Read-Host "输入自己的API Key" -AsSecureString
+$env:OPENAI_API_KEY = [System.Net.NetworkCredential]::new("", $apiDemoSecret).Password
+Remove-Variable apiDemoSecret
 ```
 
 ```python
@@ -106,7 +108,7 @@ from openai import OpenAI
 client = OpenAI()
 ```
 
-官方 OpenAI SDK 会默认从环境变量里读取 `OPENAI_API_KEY`。如果使用 OpenAI 兼容接口，也可以显式传入 `api_key` 和 `base_url`，但仍然建议从环境变量读取：
+这组PowerShell命令只设置当前终端及其后续启动进程的环境变量，不会让其他已打开的终端自动获得密钥。官方 OpenAI SDK 会默认从环境变量里读取 `OPENAI_API_KEY`。如果使用 OpenAI 兼容接口，也可以显式传入 `api_key` 和 `base_url`，但仍然建议从环境变量读取：
 
 ```python
 import os
@@ -301,6 +303,8 @@ print(result.choices[0].message.content)
 | `usage` | 统计 token 消耗和成本 |
 | 错误码 | 判断是参数问题、额度问题、限流还是服务异常 |
 
+这里列的是不同接口需要关注的信息，不是一份共同响应结构。`finish_reason`属于Chat Completions的choice；Responses应检查`status`、`incomplete_details`及错误信息。只读取`output_text`不能证明响应正常完成，字段位置与含义以对应接口为准。
+
 例如 Chat Completions 风格的响应常见层级是：
 
 ```text
@@ -308,6 +312,7 @@ ChatCompletion
 ├── id
 ├── model
 ├── choices[]
+│   ├── finish_reason
 │   └── message
 │       ├── role
 │       └── content
@@ -328,6 +333,8 @@ $$
 $$
 
 这个公式想解决的问题是：一次模型调用到底花了多少钱。
+
+公式中的单价按“每Token”换算；报价若按每100万Token给出，计算时先除以100万。下面使用虚构单价，只演示单位换算，不代表某个模型当前价格。
 
 其中：
 
@@ -362,7 +369,7 @@ $$
 
 这也是为什么 Token 后面值得单独写一篇。它不是抽象概念，而是上下文、速度和费用的共同单位。
 
-## 流式响应：为什么 AI 产品喜欢“边想边输出”
+## 流式响应：为什么 AI 产品喜欢“边生成边输出”
 
 非流式调用是这样：
 
@@ -407,8 +414,11 @@ stream = client.responses.create(
 )
 
 for event in stream:
-    print(event)
+    if event.type == "response.output_text.delta":
+        print(event.delta, end="", flush=True)
 ```
+
+这个片段只演示文本增量的显示，不能把每个流事件都当成文字。正式程序还需处理完成、未完成和失败事件，记录最终状态与用量，不能仅凭循环结束就认定任务成功。
 
 如果是 Chat Completions 兼容接口，常见处理逻辑会变成读取 `delta.content`：
 
@@ -506,7 +516,7 @@ flowchart TD
     E -->|是| F[进入业务系统]
 ```
 
-伪代码可以长这样：
+下面是可以独立运行的本地解析函数；它不调用模型，用于检查前面的JSON文本：
 
 ```python
 import json
@@ -517,6 +527,9 @@ ALLOWED_PRIORITY = {"P0", "P1", "P2", "P3"}
 def parse_feedback_result(text: str) -> dict:
     data = json.loads(text)
 
+    if not isinstance(data, dict):
+        raise ValueError("expected a JSON object")
+
     if data.get("category") not in ALLOWED_CATEGORY:
         raise ValueError("invalid category")
 
@@ -525,6 +538,9 @@ def parse_feedback_result(text: str) -> dict:
 
     if not isinstance(data.get("need_human_check"), bool):
         raise ValueError("invalid need_human_check")
+
+    if not isinstance(data.get("summary"), str) or not data["summary"].strip():
+        raise ValueError("invalid summary")
 
     return data
 ```
